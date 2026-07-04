@@ -6,16 +6,50 @@ name.**
 
 ## Why
 
-The folk instinct is right: *"check the hash and a hacker can't tamper with your
-download."* The usual ways of doing it are not.
+**The short version.** When you download a file over a network you don't
+control — café WiFi, a mirror, a CDN — someone in the middle can quietly swap
+the file for a tampered one. This isn't hypothetical: a host firewall flagging
+unexpected connections on an untrusted network is a real experience, and
+man-in-the-middle attacks on shared networks are well documented. The usual
+advice is "check the file's hash so you know it wasn't tampered with." Good
+instinct. But the way it's normally done doesn't actually protect you, for three
+separate reasons:
 
-- **MD5 is collision-broken.** An attacker can build a malicious file that
-  matches a published MD5. Even SHA-256 doesn't save you if the checksum is
-  delivered the wrong way (next point).
+1. **The hash people publish (MD5) is forgeable.** A "hash" is a short
+   fingerprint of a file. MD5 is *collision-broken*: an attacker can craft a
+   **malicious** file that has the **same** MD5 as the real one, so "the hash
+   matches" no longer means "this is the real file." (This is how the Flame
+   malware forged a Microsoft signature in 2012.)
+2. **Nobody actually checks it.** Verifying a hash by hand is a manual,
+   tedious step, so almost everyone skips it. Protection that depends on a
+   human remembering to do a chore isn't protection.
+3. **Even if you check, it's already too late.** You compute the hash *after*
+   the whole file has downloaded — which means the malware is already sitting
+   on your disk, and may have already been opened or auto-run before you ever
+   compare fingerprints.
+
+**blacklight fixes all three:** it uses a strong, non-forgeable hash (BLAKE3);
+it verifies **automatically**, with no manual step; and it verifies the file
+**as it streams in**, stopping at the very first bad byte so tampered data
+never fully lands on your machine. And it proves *who* published the file, using
+a signature recorded in a public, tamper-evident log.
+
+<details>
+<summary><b>The precise version</b> (for the security-minded)</summary>
+
+The folk instinct — *"check the hash and a hacker can't tamper with your
+download"* — is right. The usual realizations of it are not:
+
+- **MD5 is collision-broken.** Collisions (two different files with the same
+  hash) have been computable in seconds for years, and *chosen-prefix*
+  collisions let an attacker craft a malicious file matching a benign file's
+  MD5. Even SHA-256 doesn't save you if the checksum is delivered the wrong way
+  (next point).
 - **An in-band checksum is replaceable by the same MITM.** If the `SHA256SUMS`
   file sits next to the artifact on the same mirror, whoever can rewrite the
   artifact can rewrite the checksum too. Both ride the same untrusted channel;
-  there's no independent anchor.
+  there's no independent anchor. The fix is a *signature* verifiable against a
+  public key your machine already trusts.
 - **TLS blinds the network layer instead of securing the artifact.** TLS
   authenticates *the server you reached* and encrypts the hop — but a malicious
   or compromised CDN edge or mirror serves tampered bytes over perfectly valid
@@ -29,6 +63,8 @@ compromised key after the fact.
 blacklight does exactly that: a Sigstore-transparency-logged signature covers a
 BLAKE3 Merkle root, and every 16 KiB chunk of the download is checked against
 that signed root **as it streams in**.
+
+</details>
 
 ## How it works
 
