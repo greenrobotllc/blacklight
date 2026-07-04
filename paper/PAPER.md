@@ -43,12 +43,27 @@ cited. A reproducible attack demonstration shows blacklight aborting a tampered
 
 ### 1.1 A real question, and three tempting wrong answers
 
-The motivating question is one that many practitioners have asked in some form:
-*"I keep hearing about man-in-the-middle attacks and tampered downloads. Why
-isn't the download's checksum just verified automatically, at the network level,
-so bad bytes are rejected before they ever reach me?"* It is a good instinct.
-The reason it does not already work as imagined is instructive, because each
-plausible-sounding fix fails for a different, nameable reason.
+Anyone who has watched a host-based firewall light up on an untrusted network —
+unexpected connections, requests to domains nothing on the machine should be
+contacting — has felt the underlying worry directly: when the network itself may
+be actively hostile, how can a download *prove* it arrived intact, automatically,
+before it is ever used? Man-in-the-middle attacks on shared and untrusted
+networks are well documented, and they are the motivating threat for this work.
+
+This is a question many practitioners have asked in some form: *"I keep hearing
+about man-in-the-middle attacks and tampered downloads. Why isn't the download's
+checksum just verified automatically, at the network level, so bad bytes are
+rejected before they ever reach me?"* It is a good instinct. The reason it does
+not already work as imagined is instructive, because each plausible-sounding fix
+fails for a different, nameable reason.
+
+*(In plain terms: a "checksum" or "hash" is a short fingerprint computed from a
+file's bytes. If two people compute it on the same file they get the same
+fingerprint; change one byte and the fingerprint changes completely. The idea is
+that a publisher advertises the fingerprint of the real file, and you recompute
+it on what you downloaded — if they match, you have the real file. The failures
+below are all about why, as usually practiced, that comparison does not actually
+stop an attacker.)*
 
 **Wrong answer 1: "Use the MD5 the project publishes."** MD5 collisions have
 been practical since 2004, and *chosen-prefix* collisions — where an attacker
@@ -57,6 +72,36 @@ The Flame malware (2012) exploited exactly this class of weakness to forge a
 Microsoft code-signing certificate. A defense whose security rests on MD5 gives
 zero assurance against the deliberate attacker it is meant to stop. Any serious
 design uses a collision-resistant hash; blacklight uses BLAKE3.
+
+*(In plain terms: "collision-broken" means someone can find two different files
+that share the same fingerprint. Because there are infinitely many possible
+files but only finitely many fingerprints, collisions must exist in principle;
+the entire security bet is that finding one on purpose is infeasible. MD5 lost
+that bet — a collision takes seconds on a laptop, and a "chosen-prefix"
+collision lets an attacker start from a legitimate file and build a malicious
+one with the identical MD5. So "the MD5 matches" no longer proves "this is the
+real file.")*
+
+Two further problems doom the MD5 workflow even if one imagines the hash were
+unbroken, and they matter as much in practice as the cryptographic weakness:
+
+- **It is a manual step, so it is skipped.** Verifying a published checksum by
+  hand — copying a hex string, running a command, comparing character by
+  character — is tedious enough that in practice almost no one does it. A defense
+  that depends on a human reliably performing a chore provides little real
+  protection. Verification must be automatic and enforced by the tool.
+- **It runs too late.** A flat checksum can only be computed once the *entire*
+  file has been downloaded. By the time the comparison happens, the malicious
+  bytes are already on disk — possibly already opened, indexed, or auto-executed
+  by an eager application. The check, even when performed, comes after the harm
+  is possible. The remedy is to verify *during* transfer and abort before the
+  bad bytes ever fully land — which is exactly what verified streaming provides
+  (Section 2.1) and what motivates blacklight's abort-on-first-bad-byte design.
+
+These three failure modes — *forgeable*, *skipped*, and *too late* — map
+directly onto blacklight's three countermeasures: a collision-resistant hash, a
+tool that verifies automatically, and streaming verification that stops at the
+first bad byte.
 
 **Wrong answer 2: "Deliver the checksum next to the file."** If the attacker can
 rewrite the file in transit, it can rewrite the checksum sitting beside it. The
