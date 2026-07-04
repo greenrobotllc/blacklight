@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Build, test, and lint on each supported OS.
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Test
+        run: cargo test --locked
+
+  # The full offline attack demo: publish (unsigned), serve, tamper mid-stream,
+  # confirm blacklight aborts. No Sigstore/OIDC needed here, so it runs on PRs.
+  attack-demo:
+    name: attack demo (verified streaming)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run the tampering-proxy demo
+        run: bash demo/run_demo.sh 32 16000000
+
+  # Exercises the piece that cannot be driven locally without a browser: the
+  # full SIGNED round-trip. GitHub Actions has an ambient OIDC identity, so
+  # `blacklight publish` signs keyless against Sigstore (no browser), and
+  # `blacklight fetch` then verifies the Rekor-anchored bundle and streams the
+  # artifact with the signer identity pinned to this workflow.
+  signed-roundtrip:
+    name: signed round-trip (Sigstore staging)
+    runs-on: ubuntu-latest
+    # Only when we have an ambient identity: pushes/dispatch on this repo, not
+    # fork PRs (which cannot mint id-tokens).
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      id-token: write        # required for keyless Sigstore signing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Publish + sign against Sigstore staging (ambient OIDC)
+        run: |
+          set -euo pipefail
+          head -c 4000000 /dev/urandom > artifact.bin
+          ./target/release/blacklight publish artifact.bin --out dist
+          echo "--- produced sidecars ---"
+          ls -l dist/
+          test -f dist/artifact.bin.blacklight.json.sigstore.json \
+            || { echo "no Sigstore bundle was produced"; exit 1; }
+
+      - name: Serve the published artifact locally
+        run: |
+          cp artifact.bin dist/artifact.bin
+          ( cd dist && python3 -m http.server 8080 --bind 127.0.0.1 &>/tmp/serve.log & )
+          # Wait for the server to accept connections.
+          for i in $(seq 1 20); do
+            curl -sf -o /dev/null "http://127.0.0.1:8080/artifact.bin.blacklight.json" && break
+            sleep 0.5
+          done
+
+      - name: Fetch + verify the signed bundle, pinning this workflow's identity
+        run: |
+          set -euo pipefail
+          # In GitHub Actions the Fulcio cert's SAN is the workflow ref.
+          IDENTITY="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/ci.yml@${GITHUB_REF}"
+          ISSUER="https://token.actions.githubusercontent.com"
+          echo "expecting identity: $IDENTITY"
+          echo "expecting issuer:   $ISSUER"
+          ./target/release/blacklight fetch \
+            "http://127.0.0.1:8080/artifact.bin.blacklight.json" \
+            --expect-identity "$IDENTITY" \
+            --expect-issuer "$ISSUER" \
+            -o fetched.bin
+          cmp artifact.bin fetched.bin
+          echo "signed round-trip verified end-to-end."
