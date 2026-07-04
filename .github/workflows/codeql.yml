@@ -1,0 +1,50 @@
+# CodeQL static analysis for blacklight (Rust).
+#
+# Rust CodeQL is GA and uses build-mode "none": CodeQL builds its own database
+# via rust-analyzer, so there is deliberately NO cargo build / autobuild step.
+# Findings surface under the repo's Security tab -> Code scanning alerts.
+name: "CodeQL"
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    # Weekly, so new CodeQL queries run against unchanged code too.
+    - cron: "27 4 * * 1"
+
+# Least privilege; the analyze step needs security-events: write to upload SARIF.
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (Rust)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: rust
+            build-mode: none
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"
