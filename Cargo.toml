@@ -1,0 +1,27 @@
+[package]
+name = "blacklight"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Verified-streaming downloads anchored in the Sigstore transparency log — tamper is caught mid-transfer, at the first bad byte, by a publisher you can name."
+repository = "https://github.com/greenrobotllc/blacklight"
+readme = "README.md"
+keywords = ["sigstore", "transparency-log", "blake3", "integrity", "supply-chain"]
+categories = ["command-line-utilities", "cryptography"]
+
+[dependencies]
+anyhow = "1.0.103"
+bao-tree = "0.16.0"
+blake3 = "1.8.5"
+clap = { version = "4.6.1", features = ["derive"] }
+futures-util = "0.3.32"
+reqwest = { version = "0.13.4", default-features = false, features = ["stream", "http2", "rustls"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+sigstore-oidc = "0.10.0"
+sigstore-sign = "0.10.0"
+sigstore-trust-root = "0.10.0"
+sigstore-types = "0.10.0"
+sigstore-verify = "0.10.0"
+thiserror = "2.0.18"
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "fs", "io-util"] }
