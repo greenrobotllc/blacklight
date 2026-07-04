@@ -70,8 +70,15 @@ set +e
 BL_EXIT=$?
 set -e
 echo ">> blacklight exit code: $BL_EXIT (3 = integrity violation)"
-if [ -f "$WORK/tampered.out" ]; then echo ">> BUG: a partial file was left behind"; else
-  echo ">> no output file was written — the tampered bytes never reached disk as 'good'."; fi
+# This is the security assertion, not just a report: the tampered fetch MUST
+# fail with the integrity exit code and MUST NOT leave an output file behind.
+if [ "$BL_EXIT" -ne 3 ]; then
+  echo ">> FAIL: expected exit code 3 (integrity violation), got $BL_EXIT"; exit 1
+fi
+if [ -f "$WORK/tampered.out" ]; then
+  echo ">> FAIL: a partial/tampered output file was left behind"; exit 1
+fi
+echo ">> no output file was written — the tampered bytes never reached disk as 'good'."
 
 echo
 echo "################  BASELINE: curl | sha256sum  ################"

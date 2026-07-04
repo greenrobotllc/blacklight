@@ -64,11 +64,13 @@ fn handle(
             return;
         }
     };
-    if let Some((tpath, off)) = &tamper
-        && &path == tpath
-        && *off < body.len()
-    {
-        body[*off] ^= 0xFF;
+    // Match guard rather than an `if let` chain, so this test compiles on the
+    // documented MSRV (let-chains stabilized later than edition 2024's floor).
+    match &tamper {
+        Some((tpath, off)) if &path == tpath && *off < body.len() => {
+            body[*off] ^= 0xFF;
+        }
+        _ => {}
     }
     counter.fetch_add(1, Ordering::SeqCst);
     let header = format!(

@@ -72,8 +72,35 @@ impl Manifest {
                 CHUNK_GROUP_LOG
             );
         }
+        // `name` is a basename only (documented, and used by `fetch` as the
+        // default output path). Reject anything that could escape the current
+        // directory — a hostile manifest must not steer writes to `../../…`,
+        // an absolute path, or `.`/`..`.
+        m.validate_name()?;
         m.root()?;
         Ok(m)
+    }
+
+    /// Enforce the basename-only contract for `name`.
+    fn validate_name(&self) -> Result<()> {
+        let name = &self.name;
+        if name.is_empty() {
+            bail!("manifest name is empty");
+        }
+        if name == "." || name == ".." {
+            bail!("manifest name {name:?} is a path traversal component");
+        }
+        if name.contains('/') || name.contains('\\') || name.contains('\0') {
+            bail!("manifest name {name:?} must be a bare filename, not a path");
+        }
+        // Belt and suspenders: the OS-parsed form must be exactly one normal
+        // component (rejects absolute paths, drive prefixes, `..`, etc.).
+        let path = std::path::Path::new(name);
+        let mut comps = path.components();
+        match (comps.next(), comps.next()) {
+            (Some(std::path::Component::Normal(c)), None) if c == name.as_str() => Ok(()),
+            _ => bail!("manifest name {name:?} is not a single filename component"),
+        }
     }
 
     pub fn root(&self) -> Result<blake3::Hash> {
@@ -131,5 +158,42 @@ mod tests {
         let json =
             br#"{"v":1,"name":"a","size":1,"blake3_root":"00","chunk_group_log":4,"evil":true}"#;
         assert!(Manifest::from_bytes(json).is_err());
+    }
+
+    #[test]
+    fn rejects_path_traversal_names() {
+        for evil in [
+            "../evil",
+            "../../etc/passwd",
+            "/etc/passwd",
+            "a/b",
+            "sub/../x",
+            "..",
+            ".",
+            "",
+            "back\\slash",
+            "with\0null",
+        ] {
+            let mut m = sample();
+            m.name = evil.into();
+            let bytes = m.to_bytes().unwrap();
+            assert!(
+                Manifest::from_bytes(&bytes).is_err(),
+                "should have rejected name {evil:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_plain_basenames() {
+        for ok in ["demo.bin", "my-file_v1.2.tar.gz", "a"] {
+            let mut m = sample();
+            m.name = ok.into();
+            let bytes = m.to_bytes().unwrap();
+            assert!(
+                Manifest::from_bytes(&bytes).is_ok(),
+                "should have accepted name {ok:?}"
+            );
+        }
     }
 }

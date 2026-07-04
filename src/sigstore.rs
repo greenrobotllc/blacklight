@@ -50,14 +50,24 @@ pub async fn sign_manifest(manifest_bytes: &[u8], env: Env) -> Result<Vec<u8>> {
         Env::Production => SigningContext::production(),
     };
 
-    // Prefer zero-interaction ambient CI credentials; fall back to browser/OOB.
+    // Prefer zero-interaction ambient CI credentials; fall back to browser/OOB
+    // only when there genuinely is no ambient identity. A detection *error*
+    // (e.g. an id-token endpoint that is present but failing) is surfaced, not
+    // silently swallowed — otherwise a broken CI signing setup would quietly
+    // pop a browser that no one is watching.
     let token: IdentityToken = match IdentityToken::detect_ambient().await {
         Ok(Some(t)) => {
             eprintln!("  using ambient CI OIDC identity");
             t
         }
-        _ => {
-            eprintln!("  opening browser for OIDC sign-in …");
+        Err(e) => {
+            return Err(anyhow!("ambient OIDC detection failed: {e}")).context(
+                "an ambient CI identity was present but could not be used; \
+                 refusing to fall back to an interactive browser flow",
+            );
+        }
+        Ok(None) => {
+            eprintln!("  no ambient CI identity; opening browser for OIDC sign-in …");
             get_identity_token(context.config().oidc_url.as_deref())
                 .await
                 .context("could not obtain an OIDC identity token")?

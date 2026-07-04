@@ -34,7 +34,7 @@ class MitmHandler(http.server.BaseHTTPRequestHandler):
         upstream = ARGS.origin.rstrip("/") + self.path
         tamper = self.path == ARGS.target
         try:
-            with urllib.request.urlopen(upstream) as resp:
+            with urllib.request.urlopen(upstream, timeout=30) as resp:
                 body_len = resp.headers.get("Content-Length")
                 self.send_response(resp.status)
                 # Force plain streaming: known length, no transfer-encoding games.

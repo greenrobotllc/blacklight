@@ -13,11 +13,27 @@
 use anyhow::{Context, Result, anyhow, bail};
 use futures_util::StreamExt;
 use std::path::{Path, PathBuf};
-use tokio::io::AsyncWriteExt;
+use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::manifest::{BUNDLE_SUFFIX, MANIFEST_SUFFIX, Manifest, OUTBOARD_SUFFIX};
 use crate::sigstore::{self, Env, IdentityPolicy};
 use crate::verify::{GROUP_LEN, GroupPlan, VerifyError};
+
+/// Give up if a connection can't be established, or if an established transfer
+/// stalls with no bytes for this long. `read_timeout` (not a total `timeout`)
+/// is deliberate: a large but healthy download must not be aborted just for
+/// taking a while, only for going silent.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
+
+fn http_client() -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(READ_TIMEOUT)
+        .build()
+        .context("building HTTP client")
+}
 
 /// Distinct error type so `main` can map integrity failures to exit code 3.
 #[derive(Debug, thiserror::Error)]
@@ -40,9 +56,12 @@ pub async fn fetch(opts: Options) -> Result<()> {
     } else {
         Env::Staging
     };
+    let client = http_client()?;
 
     // 1. Load manifest + bundle (from URL or local path).
-    let manifest_bytes = load(&opts.manifest).await.context("cannot load manifest")?;
+    let manifest_bytes = load(&client, &opts.manifest)
+        .await
+        .context("cannot load manifest")?;
 
     if opts.allow_unsigned {
         eprintln!(
@@ -51,7 +70,7 @@ pub async fn fetch(opts: Options) -> Result<()> {
     } else {
         let policy = build_policy(&opts)?;
         let bundle_src = format!("{}{BUNDLE_SUFFIX}", opts.manifest);
-        let bundle_bytes = load(&bundle_src)
+        let bundle_bytes = load(&client, &bundle_src)
             .await
             .with_context(|| format!("cannot load Sigstore bundle from {bundle_src}"))?;
         eprintln!("verifying Sigstore bundle offline ({env:?}) …");
@@ -75,7 +94,7 @@ pub async fn fetch(opts: Options) -> Result<()> {
 
     // 2. Fetch the outboard tree (small; downloaded fully before streaming data).
     let outboard_src = artifact_relative(&opts.manifest, OUTBOARD_SUFFIX, &manifest);
-    let outboard = load(&outboard_src)
+    let outboard = load(&client, &outboard_src)
         .await
         .with_context(|| format!("cannot load outboard from {outboard_src}"))?;
 
@@ -86,25 +105,30 @@ pub async fn fetch(opts: Options) -> Result<()> {
         .context("outboard failed to verify against signed root")?;
 
     // 3. Stream the artifact, verifying each group as it lands.
-    let artifact_url = resolve_artifact_url(&opts, &manifest)?;
+    let artifact_src = resolve_artifact_url(&opts, &manifest)?;
     let out_path = opts
         .output
         .clone()
         .unwrap_or_else(|| PathBuf::from(&manifest.name));
-    eprintln!("streaming {artifact_url} …");
+    eprintln!("streaming {artifact_src} …");
 
-    stream_verified(&artifact_url, &plan, &out_path).await
+    stream_verified(&client, &artifact_src, &plan, &out_path).await
 }
 
 /// The core loop: pull bytes, accumulate into 16 KiB groups, verify each group
 /// against the plan the instant it completes, and abort on the first mismatch.
-async fn stream_verified(url: &str, plan: &GroupPlan, out_path: &Path) -> Result<()> {
+async fn stream_verified(
+    client: &reqwest::Client,
+    src: &str,
+    plan: &GroupPlan,
+    out_path: &Path,
+) -> Result<()> {
     let tmp_path = out_path.with_extension("blacklight-partial");
     let mut tmp = tokio::fs::File::create(&tmp_path)
         .await
         .with_context(|| format!("cannot create {}", tmp_path.display()))?;
 
-    let result = stream_verified_inner(url, plan, &mut tmp).await;
+    let result = stream_verified_inner(client, src, plan, &mut tmp).await;
 
     // On any failure — tampering or network — never leave a partial file that
     // could be mistaken for a good download.
@@ -129,66 +153,114 @@ async fn stream_verified(url: &str, plan: &GroupPlan, out_path: &Path) -> Result
 }
 
 async fn stream_verified_inner(
-    url: &str,
+    client: &reqwest::Client,
+    src: &str,
     plan: &GroupPlan,
     tmp: &mut tokio::fs::File,
 ) -> Result<u64> {
-    let resp = reqwest::get(url)
-        .await
-        .with_context(|| format!("request to {url} failed"))?;
-    if !resp.status().is_success() {
-        bail!("server returned HTTP {} for {url}", resp.status());
-    }
-
-    let mut stream = resp.bytes_stream();
     let mut group_buf: Vec<u8> = Vec::with_capacity(GROUP_LEN);
-    let mut group_index: usize = 0;
-    let mut total: u64 = 0;
+    let mut state = StreamState {
+        plan,
+        tmp,
+        group_buf: &mut group_buf,
+        group_index: 0,
+        total: 0,
+    };
 
-    while let Some(chunk) = stream.next().await {
-        // A network read error is NOT tampering — surface it as an ordinary
-        // error (exit 1), distinct from integrity failure (exit 3).
-        let chunk = chunk.with_context(|| format!("network error reading {url}"))?;
-        let mut data = &chunk[..];
-        while !data.is_empty() {
-            let need = GROUP_LEN - group_buf.len();
-            let take = need.min(data.len());
-            group_buf.extend_from_slice(&data[..take]);
-            data = &data[take..];
-            if group_buf.len() == GROUP_LEN {
-                verify_group(plan, group_index, &group_buf)?;
-                tmp.write_all(&group_buf).await?;
-                total += group_buf.len() as u64;
-                group_index += 1;
-                group_buf.clear();
+    if is_url(src) {
+        let resp = client
+            .get(src)
+            .send()
+            .await
+            .with_context(|| format!("request to {src} failed"))?;
+        if !resp.status().is_success() {
+            bail!("server returned HTTP {} for {src}", resp.status());
+        }
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            // A network read error is NOT tampering — surface it as an ordinary
+            // error (exit 1), distinct from integrity failure (exit 3).
+            let chunk = chunk.with_context(|| format!("network error reading {src}"))?;
+            state.feed(&chunk).await?;
+        }
+    } else {
+        // Local artifact (e.g. a local manifest path, or --url pointing at a
+        // file). Stream it from disk through the exact same verification.
+        let mut file = tokio::fs::File::open(src)
+            .await
+            .with_context(|| format!("cannot open local artifact {src}"))?;
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            let n = file
+                .read(&mut buf)
+                .await
+                .with_context(|| format!("error reading {src}"))?;
+            if n == 0 {
+                break;
             }
+            state.feed(&buf[..n]).await?;
         }
     }
 
-    // Final short group (if any).
-    if !group_buf.is_empty() {
-        verify_group(plan, group_index, &group_buf)?;
-        tmp.write_all(&group_buf).await?;
-        total += group_buf.len() as u64;
-        group_index += 1;
+    state.finish().await
+}
+
+/// Accumulates the byte stream into 16 KiB groups, verifying and writing each
+/// as it completes. Shared by the URL and local-file paths.
+struct StreamState<'a> {
+    plan: &'a GroupPlan,
+    tmp: &'a mut tokio::fs::File,
+    group_buf: &'a mut Vec<u8>,
+    group_index: usize,
+    total: u64,
+}
+
+impl StreamState<'_> {
+    async fn feed(&mut self, mut data: &[u8]) -> Result<()> {
+        while !data.is_empty() {
+            let need = GROUP_LEN - self.group_buf.len();
+            let take = need.min(data.len());
+            self.group_buf.extend_from_slice(&data[..take]);
+            data = &data[take..];
+            if self.group_buf.len() == GROUP_LEN {
+                verify_group(self.plan, self.group_index, self.group_buf)?;
+                self.tmp.write_all(self.group_buf).await?;
+                self.total += self.group_buf.len() as u64;
+                self.group_index += 1;
+                self.group_buf.clear();
+            }
+        }
+        Ok(())
     }
 
-    // Length must match exactly: a truncated or padded stream is a mismatch.
-    if total != plan.size() {
-        return Err(TamperError(format!(
-            "stream length {total} != signed size {} (truncated or padded)",
-            plan.size()
-        ))
-        .into());
+    async fn finish(mut self) -> Result<u64> {
+        // Final short group (if any).
+        if !self.group_buf.is_empty() {
+            verify_group(self.plan, self.group_index, self.group_buf)?;
+            self.tmp.write_all(self.group_buf).await?;
+            self.total += self.group_buf.len() as u64;
+            self.group_index += 1;
+        }
+
+        // Length must match exactly: a truncated or padded stream is a mismatch.
+        if self.total != self.plan.size() {
+            return Err(TamperError(format!(
+                "stream length {} != signed size {} (truncated or padded)",
+                self.total,
+                self.plan.size()
+            ))
+            .into());
+        }
+        if self.group_index != self.plan.group_count() {
+            return Err(TamperError(format!(
+                "received {} groups, expected {}",
+                self.group_index,
+                self.plan.group_count()
+            ))
+            .into());
+        }
+        Ok(self.total)
     }
-    if group_index != plan.group_count() {
-        return Err(TamperError(format!(
-            "received {group_index} groups, expected {}",
-            plan.group_count()
-        ))
-        .into());
-    }
-    Ok(total)
 }
 
 fn verify_group(plan: &GroupPlan, index: usize, data: &[u8]) -> Result<()> {
@@ -218,9 +290,9 @@ fn build_policy(opts: &Options) -> Result<IdentityPolicy> {
 }
 
 /// Load bytes from an http(s) URL or a local filesystem path.
-async fn load(src: &str) -> Result<Vec<u8>> {
+async fn load(client: &reqwest::Client, src: &str) -> Result<Vec<u8>> {
     if is_url(src) {
-        let resp = reqwest::get(src).await?;
+        let resp = client.get(src).send().await?;
         if !resp.status().is_success() {
             bail!("HTTP {} for {src}", resp.status());
         }
@@ -247,7 +319,9 @@ fn artifact_relative(manifest_src: &str, new_suffix: &str, manifest: &Manifest) 
 }
 
 /// Decide where the artifact bytes come from: explicit override, else the
-/// manifest location minus its suffix, else the manifest's URL hints.
+/// manifest location minus its suffix, else the manifest's URL hints. The
+/// result may be an http(s) URL or a local path; the streaming reader handles
+/// both.
 fn resolve_artifact_url(opts: &Options, manifest: &Manifest) -> Result<String> {
     if let Some(u) = &opts.url_override {
         return Ok(u.clone());
