@@ -33,6 +33,11 @@ class MitmHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         upstream = ARGS.origin.rstrip("/") + self.path
         tamper = self.path == ARGS.target
+        # Once the status line + headers are on the wire we can no longer send an
+        # HTTP error response — doing so would emit a second status line into the
+        # same response. After that point, failures are logged and the
+        # connection is simply dropped.
+        headers_sent = False
         try:
             with urllib.request.urlopen(upstream, timeout=30) as resp:
                 body_len = resp.headers.get("Content-Length")
@@ -46,6 +51,7 @@ class MitmHandler(http.server.BaseHTTPRequestHandler):
                     self.send_header("Content-Length", body_len)
                 self.send_header("Connection", "close")
                 self.end_headers()
+                headers_sent = True
 
                 if tamper:
                     sys.stderr.write(
@@ -75,7 +81,12 @@ class MitmHandler(http.server.BaseHTTPRequestHandler):
                         return
                     pos += len(chunk)
         except Exception as e:  # noqa: BLE001 - demo tool, surface anything
-            self.send_error(502, f"upstream error: {e}")
+            if headers_sent:
+                # A 200 response is already in flight; we can't turn it into an
+                # error. Log and let the connection close.
+                sys.stderr.write(f"[evil_proxy] upstream error mid-stream: {e}\n")
+            else:
+                self.send_error(502, f"upstream error: {e}")
 
 
 def main():
