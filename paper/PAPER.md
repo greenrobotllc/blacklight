@@ -69,7 +69,9 @@ stop an attacker.)*
 been practical since 2004, and *chosen-prefix* collisions — where an attacker
 crafts a malicious file sharing the MD5 of a benign one — are well within reach.
 The Flame malware (2012) exploited exactly this class of weakness to forge a
-Microsoft code-signing certificate. A defense whose security rests on MD5 gives
+Microsoft code-signing certificate — using an MD5 chosen-prefix collision that
+later cryptanalysis showed was a previously-unknown variant of the technique
+[Stevens, CRYPTO 2013; ref. 22]. A defense whose security rests on MD5 gives
 zero assurance against the deliberate attacker it is meant to stop. Any serious
 design uses a collision-resistant hash; blacklight uses BLAKE3.
 
@@ -544,3 +546,12 @@ single bad chunk group rather than an entire tampered file.
     attestations (2024).
 21. Trail of Bits. "Catching malicious package releases using a transparency
     log." 2025. https://blog.trailofbits.com/2025/12/12/
+22. M. Stevens. "Counter-Cryptanalysis." *CRYPTO 2013*, LNCS 8042, pp. 129–146.
+    (Open-access extended version: IACR ePrint 2013/358,
+    https://eprint.iacr.org/2013/358.) The analysis proving the Flame malware's
+    forged Microsoft code-signing certificate used a previously-unknown variant
+    of the MD5 chosen-prefix collision attack. See also M. Fillinger & M.
+    Stevens, "Reverse-Engineering of the Cryptanalytic Attack Used in the Flame
+    Super-Malware," *ASIACRYPT 2015*, LNCS 9453, pp. 586–611
+    (https://eprint.iacr.org/2016/298), and Microsoft Security Advisory 2718704
+    (June 3, 2012).

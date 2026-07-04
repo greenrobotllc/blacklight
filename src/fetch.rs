@@ -17,7 +17,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::manifest::{BUNDLE_SUFFIX, MANIFEST_SUFFIX, Manifest, OUTBOARD_SUFFIX};
-use crate::sigstore::{self, Env, IdentityPolicy};
+use crate::sigstore::{self, IdentityPolicy};
 use crate::verify::{GROUP_LEN, GroupPlan, VerifyError};
 
 /// Give up if a connection can't be established, or if an established transfer
@@ -45,17 +45,12 @@ pub struct Options {
     pub expect_identity: Option<String>,
     pub expect_issuer: Option<String>,
     pub allow_unsigned: bool,
-    pub production: bool,
+    pub target: sigstore::Target,
     pub url_override: Option<String>,
     pub output: Option<PathBuf>,
 }
 
 pub async fn fetch(opts: Options) -> Result<()> {
-    let env = if opts.production {
-        Env::Production
-    } else {
-        Env::Staging
-    };
     let client = http_client()?;
 
     // 1. Load manifest + bundle (from URL or local path).
@@ -73,8 +68,8 @@ pub async fn fetch(opts: Options) -> Result<()> {
         let bundle_bytes = load(&client, &bundle_src)
             .await
             .with_context(|| format!("cannot load Sigstore bundle from {bundle_src}"))?;
-        eprintln!("verifying Sigstore bundle offline ({env:?}) …");
-        let v = sigstore::verify_manifest(&manifest_bytes, &bundle_bytes, &policy, env)
+        eprintln!("verifying Sigstore bundle offline …");
+        let v = sigstore::verify_manifest(&manifest_bytes, &bundle_bytes, &policy, &opts.target)
             .context("Sigstore verification FAILED — refusing to download")?;
         eprintln!("  signer   {} (issuer {})", v.identity, v.issuer);
         if let Some(t) = v.integrated_time {

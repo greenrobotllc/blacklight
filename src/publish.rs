@@ -18,7 +18,7 @@ pub struct Options {
     pub file: PathBuf,
     pub out: Option<PathBuf>,
     pub unsigned: bool,
-    pub production: bool,
+    pub target: sigstore::Target,
     pub urls: Vec<String>,
 }
 
@@ -79,13 +79,11 @@ pub async fn publish(opts: Options) -> Result<()> {
         &name,
         &format!("{MANIFEST_SUFFIX}{BUNDLE_SUFFIX}"),
     );
-    let env = if opts.production {
-        sigstore::Env::Production
-    } else {
-        sigstore::Env::Staging
-    };
-    eprintln!("signing manifest via Sigstore ({env:?}, keyless OIDC) …");
-    let bundle_json = sigstore::sign_manifest(&manifest_bytes, env)
+    eprintln!(
+        "signing manifest via Sigstore ({}, keyless OIDC) …",
+        describe_target(&opts.target)
+    );
+    let bundle_json = sigstore::sign_manifest(&manifest_bytes, &opts.target)
         .await
         .context("Sigstore signing failed")?;
     std::fs::write(&bundle_path, &bundle_json)
@@ -93,6 +91,17 @@ pub async fn publish(opts: Options) -> Result<()> {
     eprintln!("  bundle   {}", bundle_path.display());
     eprintln!("done. host: artifact, {OUTBOARD_SUFFIX}, {MANIFEST_SUFFIX}, and the bundle.");
     Ok(())
+}
+
+fn describe_target(target: &sigstore::Target) -> String {
+    match target {
+        sigstore::Target::Staging => "staging".to_string(),
+        sigstore::Target::Production => "production".to_string(),
+        sigstore::Target::Custom(c) => {
+            let rekor = c.rekor_url.as_deref().unwrap_or("(default rekor)");
+            format!("private: rekor={rekor}")
+        }
+    }
 }
 
 fn sidecar(dir: &Path, name: &str, suffix: &str) -> PathBuf {
