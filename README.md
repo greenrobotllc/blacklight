@@ -107,9 +107,10 @@ Imagine a publisher wants to give you a file, but it has to travel across roads
    characters. Change one byte of the file and the fingerprint changes
    completely. blacklight uses a hash called **BLAKE3**.
 2. **Fingerprint the pieces, not just the whole.** Instead of one fingerprint
-   for the entire file, BLAKE3 builds a little *tree* of fingerprints — one for
-   each 16 KB chunk, then fingerprints of those fingerprints, up to a single
-   "root" fingerprint at the top. This tree is what lets us check the file
+   for the entire file, BLAKE3 internally hashes the file as a *tree* of
+   fingerprints — fingerprints of small pieces, then fingerprints of those
+   fingerprints, up to a single "root" fingerprint at the top. blacklight
+   verifies that tree in 16 KiB pieces. This is what lets us check the file
    piece-by-piece *while it downloads*, instead of only at the very end.
 3. **Sign the fingerprint so nobody can fake it.** A thief could swap the file
    *and* its fingerprint. To stop that, the publisher **signs** the root
@@ -121,8 +122,8 @@ Imagine a publisher wants to give you a file, but it has to travel across roads
    theft leaves a permanent, visible trace.
 5. **You verify everything on your own computer.** When you download, blacklight
    checks the seal (is this really from the publisher I named?), checks the log
-   (is this signature really in the public ledger?), and then verifies each 16 KB
-   chunk against the signed tree *as it arrives*. The moment one chunk doesn't
+   (is this signature really in the public ledger?), and then verifies each
+   16 KiB piece against the signed tree *as it arrives*. The moment one piece doesn't
    match, it stops and throws the download away. The network delivered the bytes,
    but your computer is the only thing that decides whether to trust them.
 
@@ -135,7 +136,7 @@ Imagine a publisher wants to give you a file, but it has to travel across roads
 | **[BLAKE3](https://github.com/BLAKE3-team/BLAKE3)** | A modern, fast, secure hash. It's built as a *tree* internally, which is what makes streaming verification possible. blacklight uses it. |
 | **[Merkle tree](https://en.wikipedia.org/wiki/Merkle_tree)** | A tree of hashes: leaves are hashes of data chunks, each parent is a hash of its children, and the single top hash (the "root") represents the whole file. Lets you verify one chunk without the whole file. |
 | **Root hash** | The single fingerprint at the top of the Merkle tree. If you trust the root, and a chunk hashes correctly up to that root, the chunk is genuine. |
-| **Chunk group** | blacklight verifies the file in 16 KB pieces. Each piece is one "chunk group." Smaller pieces = catch tampering sooner; 16 KB is a good balance. |
+| **Chunk group** | blacklight verifies the file in 16 KiB pieces. Each piece is one "chunk group." Smaller pieces = catch tampering sooner; 16 KiB is a good balance. |
 | **[Bao](https://github.com/oconnor663/bao) / `.obao` file** | *Bao* is the format for BLAKE3 "verified streaming." The **`.obao`** file is the *outboard* Merkle tree — all the tree's internal fingerprints stored in a small separate file (about 0.4% of the file's size) so the client can check chunks as they stream. |
 | **[Sidecar file](https://en.wikipedia.org/wiki/Sidecar_file)** | A small companion file that lives next to a main file and carries extra data about it. The `.obao` tree, the manifest, and the signature are all sidecars next to your artifact. |
 | **Manifest (`.blacklight.json`)** | A tiny text file (JSON) that records the file's name, size, and root hash. It's the thing that actually gets signed. |
@@ -307,7 +308,9 @@ chain, the offline verification, and the identity policy are all identical —
 only the endpoints and trust root change.
 
 **Publish** against your private Rekor/Fulcio (and your own OIDC issuer, e.g.
-your corporate SSO):
+your corporate SSO). All three endpoints must be given **together** — mixing a
+private log with the public CA (or vice versa) would be an inconsistent trust
+setup, so blacklight rejects a partial set:
 
 ```sh
 blacklight publish demo.bin \

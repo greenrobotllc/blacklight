@@ -82,18 +82,13 @@ pub async fn sign_manifest(manifest_bytes: &[u8], target: &Target) -> Result<Vec
         Target::Staging => SigningContext::staging(),
         Target::Production => SigningContext::production(),
         Target::Custom(c) => {
-            // Start from the public-good defaults and override the endpoints
-            // the operator supplied, so anything they omit falls back sanely.
-            let mut config = SigningConfig::default();
-            if let Some(u) = &c.fulcio_url {
-                config.fulcio_url = u.clone();
-            }
-            if let Some(u) = &c.rekor_url {
-                config.rekor_url = u.clone();
-            }
-            if let Some(u) = &c.oidc_url {
-                config.oidc_url = Some(u.clone());
-            }
+            let (fulcio_url, rekor_url, oidc_url) = custom_signing_endpoints(c)?;
+            let config = SigningConfig {
+                fulcio_url,
+                rekor_url,
+                oidc_url: Some(oidc_url),
+                ..SigningConfig::default()
+            };
             SigningContext::with_config(config)
         }
     };
@@ -161,6 +156,21 @@ pub fn verify_manifest(
     })
 }
 
+/// A private deployment must be specified as a coherent whole: signing against
+/// a private Rekor while still trusting the *public* Fulcio/OIDC (or vice versa)
+/// is a silently-mismatched trust setup. Require all three signing endpoints
+/// together rather than falling back to public-good defaults for any omitted.
+fn custom_signing_endpoints(c: &CustomTarget) -> Result<(String, String, String)> {
+    match (&c.fulcio_url, &c.rekor_url, &c.oidc_url) {
+        (Some(f), Some(r), Some(o)) => Ok((f.clone(), r.clone(), o.clone())),
+        _ => bail!(
+            "signing against a private Sigstore requires --fulcio-url, \
+             --rekor-url, and --oidc-url together (mixing private and public \
+             endpoints would be an inconsistent trust setup)"
+        ),
+    }
+}
+
 fn load_trust_root(target: &Target) -> Result<sigstore_trust_root::TrustedRoot> {
     match target {
         Target::Staging => {
@@ -213,5 +223,37 @@ mod tests {
             format!("{err:#}").contains("custom trusted root"),
             "wrong error: {err:#}"
         );
+    }
+
+    #[test]
+    fn custom_signing_requires_all_three_endpoints() {
+        let all = CustomTarget {
+            fulcio_url: Some("https://fulcio.corp".into()),
+            rekor_url: Some("https://rekor.corp".into()),
+            oidc_url: Some("https://sso.corp".into()),
+            ..Default::default()
+        };
+        assert!(custom_signing_endpoints(&all).is_ok());
+
+        // Any partial subset is rejected — no silent fallback to public defaults.
+        let partials = [
+            CustomTarget {
+                rekor_url: Some("https://rekor.corp".into()),
+                ..Default::default()
+            },
+            CustomTarget {
+                fulcio_url: Some("https://fulcio.corp".into()),
+                oidc_url: Some("https://sso.corp".into()),
+                ..Default::default()
+            },
+            CustomTarget::default(),
+        ];
+        for p in partials {
+            let err = custom_signing_endpoints(&p).unwrap_err().to_string();
+            assert!(
+                err.contains("--fulcio-url") && err.contains("--rekor-url"),
+                "unhelpful error: {err}"
+            );
+        }
     }
 }
