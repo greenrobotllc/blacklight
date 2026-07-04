@@ -56,40 +56,26 @@ including hosts you assume are hostile — because the downloader verifies
 everything locally:
 
 ```mermaid
-flowchart LR
-    subgraph PUB["Publisher (has an OIDC identity)"]
-        A["artifact"] --> P["blacklight publish"]
-        P --> OB[".obao\noutboard Merkle tree\n(~0.4% of file size)"]
-        P --> M["manifest\n.blacklight.json\n{name, size, blake3_root}"]
-        P --> B["Sigstore bundle\n.sigstore.json\n(sig + cert + log proof)"]
-    end
+flowchart TB
+    A["artifact"] --> P["blacklight publish"]
 
     subgraph SIG["Sigstore infrastructure"]
-        F["Fulcio CA\n(short-lived cert\nfor OIDC identity)"]
-        R["Rekor\npublic transparency log"]
+        direction LR
+        F["Fulcio CA\nshort-lived cert\nfor OIDC identity"] -. "signature\nlogged" .-> R["Rekor\npublic transparency log"]
     end
-    P -. "sign manifest keyless" .-> F
-    F -. "signature logged" .-> R
-    R -. "inclusion proof\nstapled into bundle" .-> B
+    P -. "sign manifest keyless (OIDC)" .-> F
 
-    subgraph HOST["Any host / mirror / CDN — UNTRUSTED"]
-        H1["artifact"]
-        H2[".obao"]
-        H3["manifest"]
-        H4["bundle"]
-    end
-    A --> H1
-    OB --> H2
-    M --> H3
-    B --> H4
+    P --> OUT["4 published files:\nartifact  ·  .obao (Merkle tree, ~0.4%)\nmanifest .blacklight.json {size, blake3_root}\nSigstore bundle .sigstore.json"]
+    R -. "inclusion proof stapled into bundle" .-> OUT
 
-    subgraph CLI["Downloader"]
-        C["blacklight fetch\nverifies EVERYTHING locally;\ntrusts no byte from the host"]
-    end
-    H1 --> C
-    H2 --> C
-    H3 --> C
-    H4 --> C
+    OUT ==> HOST["Any host / mirror / CDN\nUNTRUSTED — can rewrite any byte in transit"]
+
+    HOST ==> C["blacklight fetch\nverifies EVERYTHING locally,\ntrusts no byte from the host\n(aborts on the first bad 16 KiB group)"]
+
+    classDef untrusted fill:#fde2e2,stroke:#d33,color:#000;
+    classDef trusted fill:#e2f0d9,stroke:#4a7,color:#000;
+    class HOST untrusted;
+    class C trusted;
 ```
 
 ### The trust chain
