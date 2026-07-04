@@ -253,6 +253,61 @@ certificate, and the Rekor inclusion proof, as JSON. It is self-contained enough
 for offline verification against the embedded trusted root — no call to
 Fulcio/Rekor at fetch time.
 
+### 4.4 The trust root (public and private deployments)
+
+Verification is anchored in a **trust root** — the set of Fulcio CA
+certificates, Rekor public keys, and timestamp-authority keys that the verifier
+considers authoritative. It is the one thing a client must obtain out-of-band;
+everything else (the bundle, the manifest, the artifact) can come from an
+untrusted mirror. The trust root is *public* data (it contains only public keys
+and certificates), so distributing it is safe.
+
+blacklight selects the trust root via `sigstore::Target` (see
+[`src/sigstore.rs`](../src/sigstore.rs)):
+
+- **`Staging` / `Production`** use the trust roots **embedded** in
+  `sigstore-trust-root` (`SIGSTORE_STAGING_TRUSTED_ROOT` /
+  `SIGSTORE_PRODUCTION_TRUSTED_ROOT`) — no file needed.
+- **`Custom`** (a self-hosted / private Sigstore) loads the trust root from a
+  file via `TrustedRoot::from_file`, supplied with `--trust-root`. An operator
+  exports this JSON from their deployment's **TUF** root of trust (the standard
+  way Sigstore distributes and rotates trust material) and ships it to clients.
+
+On the **signing** side, `Custom` builds a `SigningConfig` from the public-good
+defaults and overrides only the endpoints the operator provides
+(`--rekor-url`/`--fulcio-url`/`--oidc-url`), so a private Rekor/Fulcio/SSO can be
+mixed and matched. The signing endpoints are *not* needed at verification time —
+the bundle's stapled inclusion proof plus the trust root are sufficient, and
+`fetch` never contacts the private Rekor. `--trust-root` is required for a
+private deployment (blacklight will not silently fall back to a public root) and
+is mutually exclusive with `--production`.
+
+This is the mechanism behind the "private transparency log for internal/VPN
+distribution" use case: the design does not change, only which log and which
+trust root are in play.
+
+**Security note for self-hosters.** Running a private Fulcio + Rekor turns two
+normally distributed-trust systems into single-operator systems, and that shift
+is the whole security burden:
+
+- **Fulcio's CA key is existential** — it can mint a cert for any accepted
+  identity, and short-lived certs have no per-cert revocation (recovery is via
+  the TUF root only). Keep the root offline (hardware) and the online signing
+  key non-exportable in an HSM/KMS.
+- **A private log must still be watched.** A single operator can mount a
+  split-view/fork attack that inclusion and consistency proofs alone don't
+  detect. Deploy `rekor-monitor` (consistency + identity monitoring), add
+  independent witnesses that co-sign checkpoints, or dual-log to the public
+  Rekor. An unmonitored private log provides no non-equivocation guarantee.
+- **Constrain the OIDC issuer** (audience `sigstore`, exact issuer pinning,
+  verified claims, 2FA) and **threshold-sign an offline, multi-party TUF root**;
+  add an RFC 3161 timestamp authority and rollback-resistant backups.
+- **Reduced-trust reality:** a single-org private log gives internal
+  auditability and privacy, but *not* the public instance's "many independent
+  watchers" property. It is only as trustworthy as the party running it. See
+  Sigstore's threat model (https://docs.sigstore.dev/about/threat-model/) and
+  security model (https://docs.sigstore.dev/about/security/).
+
 ---
 
 ## 5. The `fetch` state machine

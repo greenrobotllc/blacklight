@@ -12,16 +12,49 @@
 //! embedded in `sigstore-trust-root`, so `fetch` verifies the signature, the
 //! certificate chain, and the Rekor inclusion proof without any network call —
 //! and enforces the caller's identity policy (exact SAN + issuer match).
+//!
+//! # Private / self-hosted Sigstore
+//!
+//! Anyone — a company behind a VPN, a nonprofit, or an individual experimenting
+//! locally — can run their own Fulcio + Rekor (and OIDC issuer) so that
+//! artifacts are logged to a *private* transparency log rather than the
+//! public-good instance. Point `publish` at those endpoints
+//! (`--rekor-url`/`--fulcio-url`/`--oidc-url`) and give `fetch` the matching
+//! trust root exported from that deployment (`--trust-root`). Everything else —
+//! the trust chain, the offline verification, the identity policy — is
+//! identical.
 
 use anyhow::{Context, Result, anyhow, bail};
 use sigstore_trust_root::{SIGSTORE_PRODUCTION_TRUSTED_ROOT, SIGSTORE_STAGING_TRUSTED_ROOT};
 use sigstore_types::Bundle;
 use sigstore_verify::{VerificationPolicy, verify as sig_verify};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Env {
+/// Which Sigstore infrastructure to sign against / verify with.
+#[derive(Debug, Clone)]
+pub enum Target {
+    /// Sigstore staging (default; good for tests and demos).
     Staging,
+    /// The Sigstore public-good production instance.
     Production,
+    /// A self-hosted / private Sigstore deployment — anyone running their own
+    /// Fulcio + Rekor (a company behind a VPN, a nonprofit, or an individual
+    /// experimenting locally). Endpoints are only needed for signing;
+    /// verification is offline against `trust_root_path`.
+    Custom(CustomTarget),
+}
+
+/// Endpoints and trust root for a private Sigstore deployment.
+#[derive(Debug, Clone, Default)]
+pub struct CustomTarget {
+    /// Fulcio (certificate authority) base URL. Signing only.
+    pub fulcio_url: Option<String>,
+    /// Rekor (transparency log) base URL. Signing only.
+    pub rekor_url: Option<String>,
+    /// OIDC issuer URL used to obtain the identity token. Signing only.
+    pub oidc_url: Option<String>,
+    /// Path to the deployment's trust root JSON (exported from its TUF root).
+    /// Required to verify bundles produced by this deployment.
+    pub trust_root_path: Option<String>,
 }
 
 /// Identity policy the verifier enforces against the signing certificate.
@@ -41,13 +74,23 @@ pub struct Verified {
 }
 
 /// Sign the manifest bytes keyless and return the serialized v0.3 bundle JSON.
-pub async fn sign_manifest(manifest_bytes: &[u8], env: Env) -> Result<Vec<u8>> {
+pub async fn sign_manifest(manifest_bytes: &[u8], target: &Target) -> Result<Vec<u8>> {
     use sigstore_oidc::{IdentityToken, get_identity_token};
-    use sigstore_sign::SigningContext;
+    use sigstore_sign::{SigningConfig, SigningContext};
 
-    let context = match env {
-        Env::Staging => SigningContext::staging(),
-        Env::Production => SigningContext::production(),
+    let context = match target {
+        Target::Staging => SigningContext::staging(),
+        Target::Production => SigningContext::production(),
+        Target::Custom(c) => {
+            let (fulcio_url, rekor_url, oidc_url) = custom_signing_endpoints(c)?;
+            let config = SigningConfig {
+                fulcio_url,
+                rekor_url,
+                oidc_url: Some(oidc_url),
+                ..SigningConfig::default()
+            };
+            SigningContext::with_config(config)
+        }
     };
 
     // Prefer zero-interaction ambient CI credentials; fall back to browser/OOB
@@ -88,14 +131,9 @@ pub fn verify_manifest(
     manifest_bytes: &[u8],
     bundle_json: &[u8],
     policy: &IdentityPolicy,
-    env: Env,
+    target: &Target,
 ) -> Result<Verified> {
-    let root_json = match env {
-        Env::Staging => SIGSTORE_STAGING_TRUSTED_ROOT,
-        Env::Production => SIGSTORE_PRODUCTION_TRUSTED_ROOT,
-    };
-    let trusted_root = sigstore_trust_root::TrustedRoot::from_json(root_json)
-        .context("loading embedded trusted root")?;
+    let trusted_root = load_trust_root(target)?;
 
     let bundle_str = std::str::from_utf8(bundle_json).context("bundle is not UTF-8")?;
     let bundle = Bundle::from_json(bundle_str).context("parsing Sigstore bundle")?;
@@ -116,4 +154,106 @@ pub fn verify_manifest(
         issuer: result.issuer.unwrap_or_else(|| policy.issuer.clone()),
         integrated_time: result.integrated_time,
     })
+}
+
+/// A private deployment must be specified as a coherent whole: signing against
+/// a private Rekor while still trusting the *public* Fulcio/OIDC (or vice versa)
+/// is a silently-mismatched trust setup. Require all three signing endpoints
+/// together rather than falling back to public-good defaults for any omitted.
+fn custom_signing_endpoints(c: &CustomTarget) -> Result<(String, String, String)> {
+    match (&c.fulcio_url, &c.rekor_url, &c.oidc_url) {
+        (Some(f), Some(r), Some(o)) => Ok((f.clone(), r.clone(), o.clone())),
+        _ => bail!(
+            "signing against a private Sigstore requires --fulcio-url, \
+             --rekor-url, and --oidc-url together (mixing private and public \
+             endpoints would be an inconsistent trust setup)"
+        ),
+    }
+}
+
+fn load_trust_root(target: &Target) -> Result<sigstore_trust_root::TrustedRoot> {
+    match target {
+        Target::Staging => {
+            sigstore_trust_root::TrustedRoot::from_json(SIGSTORE_STAGING_TRUSTED_ROOT)
+                .context("loading embedded staging trusted root")
+        }
+        Target::Production => {
+            sigstore_trust_root::TrustedRoot::from_json(SIGSTORE_PRODUCTION_TRUSTED_ROOT)
+                .context("loading embedded production trusted root")
+        }
+        Target::Custom(c) => {
+            let path = c.trust_root_path.as_deref().ok_or_else(|| {
+                anyhow!(
+                    "a custom Sigstore deployment requires --trust-root <path> to verify \
+                     (export it from your deployment's TUF root)"
+                )
+            })?;
+            sigstore_trust_root::TrustedRoot::from_file(path)
+                .with_context(|| format!("loading custom trusted root from {path}"))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn public_presets_load_their_embedded_roots() {
+        assert!(load_trust_root(&Target::Staging).is_ok());
+        assert!(load_trust_root(&Target::Production).is_ok());
+    }
+
+    #[test]
+    fn custom_without_trust_root_gives_actionable_error() {
+        let t = Target::Custom(CustomTarget::default());
+        let err = load_trust_root(&t).unwrap_err().to_string();
+        assert!(err.contains("--trust-root"), "unhelpful error: {err}");
+    }
+
+    #[test]
+    fn custom_with_missing_trust_root_file_errors_on_the_root() {
+        let t = Target::Custom(CustomTarget {
+            trust_root_path: Some("/no/such/trust-root.json".into()),
+            ..Default::default()
+        });
+        let err = load_trust_root(&t).unwrap_err();
+        // The failure is attributed to loading the custom root, not something else.
+        assert!(
+            format!("{err:#}").contains("custom trusted root"),
+            "wrong error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn custom_signing_requires_all_three_endpoints() {
+        let all = CustomTarget {
+            fulcio_url: Some("https://fulcio.corp".into()),
+            rekor_url: Some("https://rekor.corp".into()),
+            oidc_url: Some("https://sso.corp".into()),
+            ..Default::default()
+        };
+        assert!(custom_signing_endpoints(&all).is_ok());
+
+        // Any partial subset is rejected — no silent fallback to public defaults.
+        let partials = [
+            CustomTarget {
+                rekor_url: Some("https://rekor.corp".into()),
+                ..Default::default()
+            },
+            CustomTarget {
+                fulcio_url: Some("https://fulcio.corp".into()),
+                oidc_url: Some("https://sso.corp".into()),
+                ..Default::default()
+            },
+            CustomTarget::default(),
+        ];
+        for p in partials {
+            let err = custom_signing_endpoints(&p).unwrap_err().to_string();
+            assert!(
+                err.contains("--fulcio-url") && err.contains("--rekor-url"),
+                "unhelpful error: {err}"
+            );
+        }
+    }
 }

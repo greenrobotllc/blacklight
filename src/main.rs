@@ -37,8 +37,18 @@ enum Command {
         #[arg(long)]
         unsigned: bool,
         /// Use Sigstore production infrastructure instead of staging.
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["rekor_url", "fulcio_url", "oidc_url"])]
         production: bool,
+        /// Sign against a private Rekor transparency log (self-hosted Sigstore).
+        /// e.g. https://rekor.corp.internal — pairs with --fulcio-url/--oidc-url.
+        #[arg(long)]
+        rekor_url: Option<String>,
+        /// Private Fulcio (certificate authority) URL for a self-hosted Sigstore.
+        #[arg(long)]
+        fulcio_url: Option<String>,
+        /// Private OIDC issuer URL for a self-hosted Sigstore.
+        #[arg(long)]
+        oidc_url: Option<String>,
         /// URL hint(s) to embed in the manifest.
         #[arg(long)]
         url: Vec<String>,
@@ -59,8 +69,13 @@ enum Command {
         #[arg(long)]
         allow_unsigned: bool,
         /// Verify against the Sigstore production trust root instead of staging.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "trust_root")]
         production: bool,
+        /// Verify against a private Sigstore's trust root (JSON exported from
+        /// that deployment's TUF root). Use this to verify artifacts signed
+        /// against a self-hosted Rekor/Fulcio.
+        #[arg(long)]
+        trust_root: Option<PathBuf>,
         /// Override the artifact URL (defaults to manifest URL minus suffix,
         /// then manifest url hints).
         #[arg(long)]
@@ -95,13 +110,28 @@ async fn run() -> Result<()> {
             out,
             unsigned,
             production,
+            rekor_url,
+            fulcio_url,
+            oidc_url,
             url,
         } => {
+            let target = if rekor_url.is_some() || fulcio_url.is_some() || oidc_url.is_some() {
+                sigstore::Target::Custom(sigstore::CustomTarget {
+                    fulcio_url,
+                    rekor_url,
+                    oidc_url,
+                    trust_root_path: None,
+                })
+            } else if production {
+                sigstore::Target::Production
+            } else {
+                sigstore::Target::Staging
+            };
             publish::publish(publish::Options {
                 file,
                 out,
                 unsigned,
-                production,
+                target,
                 urls: url,
             })
             .await
@@ -112,15 +142,26 @@ async fn run() -> Result<()> {
             expect_issuer,
             allow_unsigned,
             production,
+            trust_root,
             url,
             output,
         } => {
+            let target = if let Some(path) = trust_root {
+                sigstore::Target::Custom(sigstore::CustomTarget {
+                    trust_root_path: Some(path.to_string_lossy().into_owned()),
+                    ..Default::default()
+                })
+            } else if production {
+                sigstore::Target::Production
+            } else {
+                sigstore::Target::Staging
+            };
             fetch::fetch(fetch::Options {
                 manifest,
                 expect_identity,
                 expect_issuer,
                 allow_unsigned,
-                production,
+                target,
                 url_override: url,
                 output,
             })
