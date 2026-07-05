@@ -437,6 +437,59 @@ and you should skim it before relying on blacklight for anything that matters:
 - **Keyless signing only.** sigstore-rust 0.10 has no self-managed-key path.
 - **No outboard redundancy.** A withheld `.obao` fails the fetch closed.
 
+## FAQ
+
+### Why does one CI job (the "signed round-trip") only run on `main`, not on pull requests?
+
+That job — `signed round-trip (Sigstore staging)` — is gated with
+`if: github.event_name != 'pull_request'`, and the reason is a real GitHub
+security boundary, not an oversight. The job does a *real* keyless signing
+against Sigstore, which requires minting an **OIDC id-token** (`permissions:
+id-token: write`). GitHub deliberately **withholds write-scoped tokens from
+pull-request runs, especially from forks** — otherwise anyone who opened a PR
+could mint your repo's identity token. So the job simply *cannot* sign on a PR
+from a contributor's fork, and rather than have it fail confusingly there, it's
+skipped on all PRs and runs on pushes to `main` (and manual `workflow_dispatch`).
+
+The important part for a public repo: **PRs are not left unverified.** The other
+jobs — `test` (build + `cargo test` + `fmt` + `clippy -D warnings` on Ubuntu and
+macOS) and `attack demo` (the full tampering-proxy end-to-end) — *do* run on
+every PR. Only the live-Sigstore signing round-trip waits for `main`, because
+it's the one step that structurally can't run earlier. You'll see it show as
+"skipped" on PRs by design.
+
+### How is this different from npm provenance (or PyPI attestations)?
+
+They share the *same machinery* — both use Sigstore keyless signing with a Rekor
+transparency log — but they protect **different things**, and are complementary
+rather than competing:
+
+- **npm provenance / PyPI PEP 740** answer *"how and by whom was this package
+  built"* — a **build-provenance** attestation (which source commit, which CI
+  workflow), checked (if at all) **after** the whole artifact is downloaded, and
+  only for packages published to that specific registry.
+- **blacklight** answers *"do the bytes I'm downloading right now match a signed
+  Merkle root from the publisher I named"* — a **transfer-integrity** layer that
+  verifies **during** the download (aborting at the first bad byte), is **gated
+  before** the transfer by a required signer-identity policy, and works for **any**
+  artifact from **any** host, not just registry packages.
+
+In short: provenance tells you *where an artifact came from*; blacklight makes
+sure *the bytes reaching your disk are that artifact*, caught mid-stream. You'd
+ideally want both — and letting blacklight also carry/verify a provenance
+attestation is a
+[tracked enhancement](https://github.com/greenrobotllc/blacklight/issues/25).
+The honest caveat: blacklight is **not** novel in *how* it signs (that's the same
+Sigstore/Rekor as npm provenance); the difference is entirely in *what* is signed
+(a streaming-verifiable BLAKE3 Merkle root) and *when* it's checked (during a
+gated transfer).
+
+### Is this production-ready?
+
+No — it's a pre-1.0, unaudited research prototype with a hand-rolled core
+verifier and fast-moving dependencies. See [`docs/CAVEATS.md`](docs/CAVEATS.md)
+for the full, honest list before relying on it for anything that matters.
+
 ## Design & background
 
 - [`docs/CAVEATS.md`](docs/CAVEATS.md) — the honest, consolidated list of
