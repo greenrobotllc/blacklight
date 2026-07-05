@@ -11,7 +11,9 @@ builds on cryptographic components that are themselves maintained but unaudited
 `bao-tree`, and the `sigstore-rust` 0.x libraries). Treat it accordingly: it is
 suitable for experimentation, evaluation, and non-critical use, but do not rely
 on it as your sole control for a high-stakes trust decision without your own
-review. See [`docs/DESIGN.md`](docs/DESIGN.md) for the full threat model.
+review. See [`docs/DESIGN.md`](docs/DESIGN.md) for the full threat model and
+[`docs/CAVEATS.md`](docs/CAVEATS.md) for the consolidated list of every known
+limitation.
 
 ## Supported versions
 

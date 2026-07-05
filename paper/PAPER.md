@@ -31,13 +31,26 @@ integrity that is end-to-end (the network is never trusted), first-byte-to-last
 accountable (a compromised publisher key leaves a permanent, monitorable trail
 in Rekor).
 
-To our knowledge no existing tool combines chunk-granular verified streaming
-with transparency-log-anchored signatures in one verification path. We make the
-composition, its trust-chain design, and a working Rust implementation the
-contribution; all of the underlying cryptographic primitives pre-exist and are
-cited. A reproducible attack demonstration shows blacklight aborting a tampered
-32 MiB download after verifying ~16 MB, where the conventional
-`curl | sha256sum` pipeline must read the entire file before it can notice.
+We want to be careful and honest about what is and is not new here, because it
+is easy to overclaim. **Neither** of blacklight's two ingredients is novel on its
+own. Merkle-tree *verified access* — verifying data block-by-block against a
+signed root as it is read — is well-established and deployed at enormous scale in
+the Linux kernel: `dm-verity` is literally a Merkle tree over a block device,
+checked per 4 KiB block on page-in (Android, ChromeOS, immutable distros), and
+`fs-verity` is the per-file equivalent (the basis of Android APK and Fedora RPM
+file integrity). Transparency-log-anchored, identity-bound signing is likewise
+already shipping in software distribution — npm provenance, PyPI PEP 740
+attestations, and experimental apt/Rekor integrations all bind artifacts to an
+identity recorded in a public log. What we could not find is a tool that
+*composes* these two into a single verification path — a transparency-logged,
+identity-bound signature over a Merkle root that authorizes chunk-granular,
+abort-on-first-bad-byte verification of a *fresh transfer from an untrusted
+remote mirror*. That specific composition, its trust-chain design, and a working
+Rust implementation are the contribution; every underlying primitive pre-exists
+and is cited (Section 6). A reproducible attack demonstration shows blacklight
+aborting a tampered 32 MiB download after verifying ~16 MB, where the
+conventional `curl | sha256sum` pipeline must read the entire file before it can
+notice.
 
 ## 1. Introduction
 
@@ -454,15 +467,64 @@ evidence for blacklight's audit-trail claim. Interview studies of signing
 adoption [Kalu et al. 2025] motivate blacklight's stance that verification must
 be automatic and sit in the transfer path, not be a manual step.
 
+**Operating-system integrity: where verified streaming is already deployed.**
+This is the most important context for an honest novelty claim, and it deflates
+the "verified streaming" half of the design entirely. The Linux kernel already
+implements Merkle-verified access at scale. **dm-verity** builds a Merkle tree
+over a read-only block device and verifies each 4 KiB block against a signed root
+hash *on page-in*, aborting on mismatch — this is Android Verified Boot,
+ChromeOS, and the backbone of immutable distributions. **fs-verity** is the
+per-file analogue (a Merkle tree stored past end-of-file, verified per page as
+the file is read; the basis of Android APK and Fedora RPM file integrity).
+**IMA/EVM** add measured boot and on-access appraisal anchored in a TPM. Every
+one of these is incremental, Merkle-based verification against a signed root — so
+blacklight's per-chunk streaming verification is *not a new idea* relative to the
+kernel; it is a known technique applied to a different deployment shape (a fresh
+transfer from an untrusted remote, aborting mid-stream, rather than a local,
+already-provisioned read-only volume). Their trust anchor, crucially, is a local
+key (kernel keyring / MOK / TPM), never a public transparency log or an
+OIDC-bound identity.
+
+**Distribution systems: content-addressing and signing are solved; transparency
+is the gap.** Modern Linux distribution already pairs content-addressed stores
+with signatures over roots: OSTree/rpm-ostree (ed25519 or GPG commit signing),
+Nix and Guix (ed25519 narinfo/substitute signatures over content-addressed
+paths), and Flatpak (OSTree GPG). Package managers verify a strong per-file hash
+committed by a signed index against a distro-managed keyring (apt's
+`InRelease`→SHA-256 chain, now Sequoia-verified in Debian 13; RPM v6 signatures
+in Fedora 43; pacman's offline master-key web of trust). What almost none of them
+add is a *transparency log* binding the artifact to a nameable, publicly
+auditable identity. The closest deployed "transparency log for software" is Go's
+checksum database (`sum.golang.org`), a tiled-Merkle transparency log — but it
+guarantees *non-equivocation* (everyone sees the same hash for a given
+`module@version`), not *identity*, and is a single operator, not keyless/OIDC.
+Identity-bound transparency has landed in language registries (npm provenance,
+PyPI PEP 740) and in experimental apt/Rekor plugins, but not in any mainstream
+OS-package path as of 2025–2026; Debian's own package-transparency planning
+leans toward *sigsum* with independent witnesses over Sigstore, treating the
+OIDC dependency as a centralization risk. A June 2026 Guix disclosure — code that
+wrote substitute files *during download before hash verification*, and signatures
+that left substitute URLs unprotected — is direct field evidence that the
+"verify-during-transfer, TLS ≠ artifact integrity" failure modes blacklight
+targets are live and unsolved in shipping distributions.
+
 **Novelty statement (stated honestly).** Every primitive blacklight uses — BLAKE3,
 Bao verified streaming, Merkle transparency logs, Sigstore keyless signing — is
-prior work and is cited above. The contribution is the *composition* and the
-*trust-chain design*: to our knowledge, blacklight is the first tool in which a
-transparency-logged signature covers a Merkle root that authorizes
-chunk-granular, abort-on-first-bad-byte verification during transfer from
-untrusted mirrors. Signed HTTP Exchanges and content-addressed streamers
-(iroh/BitTorrent v2) are the nearest architectural relatives, and we do not claim
-novelty over their individual mechanisms — only over uniting them.
+prior work, and, as the two subsections above make explicit, *both halves are
+independently and widely deployed*: Merkle-verified streaming in the kernel
+(dm-verity/fs-verity), and transparency-log-anchored identity-bound signing in
+language registries (npm/PyPI) and apt/Rekor experiments. We therefore do **not**
+claim that verified streaming, transparency logs, or identity-bound signing are
+new. The narrow contribution is their *composition into one verification path*:
+to our knowledge, blacklight is the first tool in which a **transparency-logged,
+identity-bound** signature covers a Merkle root that authorizes chunk-granular,
+abort-on-first-bad-byte verification of a **fresh transfer from an untrusted
+remote mirror**, with a mandatory signer-identity policy enforced before the
+first byte is downloaded. Signed HTTP Exchanges (MICE), content-addressed
+streamers (iroh/BitTorrent v2), and apt/Rekor plugins are the nearest
+architectural relatives; we claim novelty only over uniting these mechanisms in
+this deployment shape, and we expect even that gap to close as Sigstore adoption
+spreads through OS distribution.
 
 ## 7. Limitations and Future Work
 
@@ -546,7 +608,23 @@ single bad chunk group rather than an entire tampered file.
     attestations (2024).
 21. Trail of Bits. "Catching malicious package releases using a transparency
     log." 2025. https://blog.trailofbits.com/2025/12/12/
-22. M. Stevens. "Counter-Cryptanalysis." *CRYPTO 2013*, LNCS 8042, pp. 129–146.
+22. Linux kernel documentation. "dm-verity" (device-mapper block integrity via a
+    Merkle tree) and "fs-verity: read-only file-based authenticity protection."
+    kernel.org, admin-guide/device-mapper/verity and filesystems/fsverity.
+    See also Android Verified Boot (source.android.com/docs/security/features/verifiedboot/dm-verity).
+23. OSTree, Nix, Guix, Flatpak documentation (content-addressed stores with
+    ed25519/GPG root/commit/narinfo signing); Go checksum database
+    ("Transparent Logs for Skeptical Clients," ref. 9) as the closest deployed
+    software transparency log — non-equivocation without identity binding.
+24. Debian Wiki, "ReproducibleBuilds/PackageTransparency" (2025 transparency.dev
+    summit notes; leans sigsum + multi-witness over Sigstore); Sigsum design
+    (git.sigsum.org — witness-cosigned, no OIDC dependency).
+25. GNU Guix. "'guix substitute' and 'guix pull' Vulnerabilities." 2026,
+    https://guix.gnu.org/en/blog/2026/guix-substitute-pull-vulnerabilities/
+    (files written during download before hash verification; substitute URLs
+    unprotected by signatures — field evidence for the verify-during-transfer
+    thesis).
+26. M. Stevens. "Counter-Cryptanalysis." *CRYPTO 2013*, LNCS 8042, pp. 129–146.
     (Open-access extended version: IACR ePrint 2013/358,
     https://eprint.iacr.org/2013/358.) The analysis proving the Flame malware's
     forged Microsoft code-signing certificate used a previously-unknown variant

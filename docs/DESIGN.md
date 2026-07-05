@@ -86,7 +86,7 @@ trusted root under the identity + issuer the client demands.
 | Present a **valid signature by the wrong issuer** (e.g. attacker's own Google account) | Issuer is pinned by `--expect-issuer`; a signature from an unexpected OIDC issuer fails the policy |
 | Strip the signature and serve an **unsigned** manifest | Without `--allow-unsigned`, a missing/invalid bundle is a hard failure ("refusing to download"). `--allow-unsigned` is opt-in and loudly warned |
 | Forge a **Rekor inclusion proof** | The inclusion proof is checked against Rekor's key material in the embedded trusted root; a forged proof does not verify |
-| **Compromise the publisher's signing identity** and sign a malicious root | *Detectable, not prevented.* Every signature is in the public Rekor log, so a rogue signature under the publisher's identity is discoverable by log monitoring (out of scope for v1, see §7) |
+| **Compromise the publisher's signing identity** and sign a malicious root | *Detectable, not prevented.* Every signature is in the public Rekor log, so a rogue signature under the publisher's identity is discoverable by log monitoring (out of scope for v1, see §8) |
 | Serve a **stale but validly signed** older version | **Out of scope (v1).** No freshness metadata; see non-goals |
 | Downgrade TLS / present a bad TLS cert | Irrelevant to integrity — blacklight does not rely on TLS for artifact integrity; the artifact URL may even be plain `http://`. TLS is orthogonal (see §6) |
 
@@ -420,7 +420,109 @@ been consumed.
 
 ---
 
-## 7. Limitations and future work
+## 7. Prior art: where this is, and is not, novel
+
+It is worth stating plainly what blacklight does *not* invent, because both of
+its ingredients are independently and widely deployed.
+
+**Merkle-verified streaming is not new — the Linux kernel does it at scale.**
+`dm-verity` is a Merkle tree over a read-only block device, verifying each 4 KiB
+block against a signed root hash on page-in (Android Verified Boot, ChromeOS,
+immutable distros). `fs-verity` is the per-file equivalent (Merkle tree past
+end-of-file, verified per page; the basis of Android APK and Fedora RPM file
+integrity). IMA/EVM add measured boot and on-access appraisal. blacklight's
+per-16 KiB-group verification is the *same technique* applied to a different
+deployment shape: a fresh transfer from an untrusted *remote* mirror, aborting
+mid-stream, rather than a local, already-provisioned read-only volume. The kernel
+mechanisms anchor trust in a local key (kernel keyring / MOK / TPM), never a
+public transparency log or an identity.
+
+**Transparency-log-anchored, identity-bound signing is not new either.** npm
+provenance and PyPI PEP 740 attestations already sign packages keylessly via
+Sigstore and log them to Rekor; experimental `apt-rekor`/`apt-cosign` plugins
+require Debian archive metadata to appear in Rekor before `apt update` proceeds.
+Go's checksum database is a deployed tiled-Merkle transparency log — though it
+proves *non-equivocation*, not identity.
+
+**Content-addressing + signing is table stakes** in modern distribution:
+OSTree/rpm-ostree, Nix, Guix, and Flatpak all pair a content-addressed store with
+signatures over roots/commits. Positioning blacklight as "content-addressed
+distribution" would be redundant.
+
+**So what is the contribution?** The *composition*, in one deployment shape: a
+transparency-logged, **identity-bound** signature over a Merkle root that
+authorizes chunk-granular, abort-on-first-bad-byte verification of a download
+from an untrusted mirror, with a signer-identity policy enforced before byte one.
+That specific combination we could not find already built — and even it is
+adjacent to the apt/Rekor and registry-provenance work, and can be expected to
+narrow as Sigstore spreads through OS distribution. A June 2026 Guix disclosure
+(files written during download *before* hash verification; substitute URLs left
+unprotected by signatures) is field evidence that the failure modes this design
+targets remain live in shipping distros — but note their fix ("verify before
+writing") needs neither a Merkle tree nor a transparency log, so it does not by
+itself validate the full blacklight design, only the verify-during-transfer half.
+
+For a fuller treatment (kernel integrity, package managers, immutable distros,
+and the mostly-social barriers to landing any of this in a distribution) see the
+related-work section of [`../paper/PAPER.md`](../paper/PAPER.md) and the
+[open enhancement issues](https://github.com/greenrobotllc/blacklight/issues)
+on log-agnostic verification (sigsum, not only Rekor) and package-manager
+augment mode.
+
+### 7.1 Sigstore vs. sigsum — and what supporting both would take
+
+blacklight anchors transparency and identity in **Sigstore** (Fulcio + Rekor).
+That is a deliberate choice with a real tradeoff, and the alternative worth
+knowing about is **[sigsum](https://www.sigsum.org/)**. They are not competitors
+so much as different points in the design space:
+
+| Property | Sigstore / Rekor (today) | Sigsum |
+| --- | --- | --- |
+| Identity binding | **Yes** — OIDC identity → short-lived Fulcio cert | **No** — logs a signed checksum, not *who* signed via which issuer |
+| Non-equivocation | Via a stapled inclusion proof (SCT / Rekor proof) | Via **witness cosigning** — a tree head is valid only if a *threshold of independent witnesses* cosigns it |
+| OIDC dependency | **Yes** (a centralization / liveness concern for some) | **No** |
+| Decentralization | More centralized public-good instance | Designed around multiple independent witnesses + gossip |
+| Operational weight | Heavier (CA + log + OIDC) | Lighter (log + witnesses; you bring your own key) |
+
+The distinction matters for adoption: communities that want transparency but
+distrust a central log or an OIDC dependency (notably some Linux distributions —
+Debian's package-transparency planning leans toward sigsum + multiple witnesses)
+would reject the Sigstore dependency outright. Conversely, sigsum alone does
+**not** give blacklight its identity policy (`--expect-identity`/`--expect-issuer`),
+which is central to the current threat model. So the honest conclusion is
+**support both**, and let the operator state which properties they require
+(identity-bound, or witnessed-non-equivocation, or both where a deployment layers
+them).
+
+**What supporting sigsum would take** (design sketch — full spec in
+[issue #18](https://github.com/greenrobotllc/blacklight/issues/18)):
+
+1. A `TransparencyBackend` trait in the verification core: given the signed
+   manifest plus a proof bundle, verify inclusion **offline** and return the
+   attested identity *if the backend provides one* (Rekor does; sigsum does not).
+   Rekor becomes one implementation, sigsum another.
+2. A sigsum verifier that checks a submission's cosigned tree head against a
+   configured **witness policy** (which witnesses, what threshold) — this replaces
+   Rekor's inclusion proof as the "it's really logged" evidence.
+3. A manifest/bundle descriptor field naming the backend, so `fetch` knows how to
+   verify what it was handed (coordinate with the manifest-v2 work).
+4. A policy model that lets a caller require *"logged + witnessed"* separately from
+   *"identity-bound"*, and — critically — **refuses to assert an identity when the
+   backend cannot prove one**. Overclaiming identity under sigsum would be a
+   security bug, not a convenience.
+5. CLI surface: `--transparency rekor|sigsum` on publish; a witness/identity policy
+   on fetch.
+
+Keeping verification offline is preserved either way: sigsum's witness
+cosignatures and Rekor's stapled proof both support offline checking, so no
+fetch-time log round-trip is introduced.
+
+---
+
+## 8. Limitations and future work
+
+> The consolidated, user-facing list of every caveat (with what each means for
+> you) lives in [`CAVEATS.md`](CAVEATS.md). This section is the engineering view.
 
 - **Rollback / freshness (biggest gap).** A validly signed *older* version
   replays cleanly. Mitigation is TUF-style metadata (version, timestamp,

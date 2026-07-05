@@ -422,17 +422,28 @@ tampered-artifact, tampered-outboard, and truncated-stream attacks.
 
 ## What it does NOT do yet
 
+A few highlights — the **[full caveats list is in `docs/CAVEATS.md`](docs/CAVEATS.md)**,
+and you should skim it before relying on blacklight for anything that matters:
+
+- **Pre-1.0 and unaudited**, with a hand-rolled core verifier and unaudited
+  streaming/Sigstore dependencies.
 - **No rollback/freshness protection.** A validly signed *older* version replays
   cleanly — that's TUF's domain.
 - **No active log monitoring.** A compromised signing identity is *detectable*
   (every signature is in Rekor) but blacklight doesn't watch the log for you.
+- **Rekor only.** No sigsum / witnessed-log support yet — and that (not Rekor) is
+  what decentralization-minded distributors tend to want. Tracked in
+  [#18](https://github.com/greenrobotllc/blacklight/issues/18).
 - **Keyless signing only.** sigstore-rust 0.10 has no self-managed-key path.
 - **No outboard redundancy.** A withheld `.obao` fails the fetch closed.
 
 ## Design & background
 
+- [`docs/CAVEATS.md`](docs/CAVEATS.md) — the honest, consolidated list of
+  limitations and what each one means for you.
 - [`docs/DESIGN.md`](docs/DESIGN.md) — full threat model, the end-to-end trust
-  chain, on-disk/on-wire formats, and the `fetch` state machine.
+  chain, on-disk/on-wire formats, the `fetch` state machine, prior art, and the
+  Sigstore-vs-sigsum tradeoff.
 - [`paper/PAPER.md`](paper/PAPER.md) — the write-up and motivation.
 
 ## Honesty note
@@ -440,9 +451,27 @@ tampered-artifact, tampered-outboard, and truncated-stream attacks.
 Every cryptographic primitive here pre-exists and is battle-tested: BLAKE3 for
 hashing and tree math, `bao-tree` (n0-computer, the engine behind iroh-blobs) for
 the outboard tree, and Sigstore (Fulcio + Rekor, via sigstore-rust) for keyless
-transparency-logged signatures. **blacklight's contribution is the
-composition** — wiring a transparency-logged signature over a BLAKE3 root into a
-forward-only, fail-fast, abort-on-first-bad-byte streaming verifier.
+transparency-logged signatures.
+
+**And to be clear: neither half of the idea is new, either.** Merkle-verified
+*streaming* — checking data block-by-block against a signed root as it's read —
+is deployed at massive scale in the Linux kernel: [dm-verity](https://source.android.com/docs/security/features/verifiedboot/dm-verity)
+is literally a Merkle tree over a block device (Android/ChromeOS/immutable
+distros), and fs-verity is the per-file version behind Android APK and Fedora RPM
+integrity. Transparency-log-anchored, identity-bound signing is likewise already
+shipping — [npm provenance](https://docs.npmjs.com/generating-provenance-statements/),
+[PyPI attestations](https://peps.python.org/pep-0740/), and experimental
+[apt/Rekor](https://blog.josefsson.org/tag/rekor/) plugins all do it. So don't
+read this as "no one has done this before" — plenty have done each part.
+
+**blacklight's contribution is the specific *composition*:** a
+transparency-logged, *identity-bound* signature over a BLAKE3 root, wired into a
+forward-only, fail-fast, abort-on-first-bad-byte streaming verifier, applied to a
+**fresh download from an untrusted remote mirror** with a signer-identity policy
+enforced before the first byte. That exact combination in that deployment shape
+is the part we couldn't find already built — and even that gap is closing as
+Sigstore spreads through software distribution. It's a research prototype, not a
+claim to have invented Merkle trees or transparency logs.
 
 ## License
 
