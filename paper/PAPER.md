@@ -572,74 +572,110 @@ single bad chunk group rather than an entire tampered file.
 
 ## References
 
+All references below were independently verified against the publisher record;
+each carries a canonical URL (publisher DOI page, RFC Editor, official
+specification, or archival copy for expired drafts).
+
 1. J. H. Saltzer, D. P. Reed, D. D. Clark. "End-to-End Arguments in System
-   Design." *ACM Transactions on Computer Systems*, 2(4), 1984.
+   Design." *ACM Transactions on Computer Systems*, 2(4):277–288, 1984.
+   https://dl.acm.org/doi/10.1145/357401.357402
+   (author copy: https://web.mit.edu/saltzer/www/publications/endtoend/endtoend.pdf)
 2. R. C. Merkle. "A Digital Signature Based on a Conventional Encryption
-   Function." *CRYPTO '87*, LNCS 293. And "A Certified Digital Signature."
-   *CRYPTO '89*, LNCS 435.
+   Function." *CRYPTO '87*, LNCS 293, pp. 369–378.
+   https://doi.org/10.1007/3-540-48184-2_32 — and "A Certified Digital
+   Signature." *CRYPTO '89*, LNCS 435, pp. 218–238 (Merkle's earlier ~1979
+   tree-authentication manuscript). https://doi.org/10.1007/0-387-34805-0_21
 3. J. O'Connor, J.-P. Aumasson, S. Neves, Z. Wilcox-O'Hearn. "BLAKE3: one
    function, fast everywhere." Specification, 2020.
-   https://github.com/BLAKE3-team/BLAKE3
+   https://github.com/BLAKE3-team/BLAKE3-specs/raw/master/blake3.pdf
+   (reference implementation: https://github.com/BLAKE3-team/BLAKE3)
 4. J. O'Connor. "Bao: an implementation of BLAKE3 verified streaming."
    Specification. https://github.com/oconnor663/bao
+   (spec: https://github.com/oconnor663/bao/blob/master/docs/spec.md)
 5. J. Chapweske, G. Mohr. "Tree Hash EXchange format (THEX)."
-   Internet-Draft draft-jchapweske-thex-02, 2003 (expired).
-6. B. Cohen. "The BitTorrent Protocol Specification v2." BEP 52, 2008/2020.
+   Internet-Draft draft-jchapweske-thex-02, 2003 (expired; never an RFC).
+   Archival copy: https://adc.sourceforge.io/draft-jchapweske-thex-02.html
+6. B. Cohen. "The BitTorrent Protocol Specification v2." BEP 52, created 2008,
+   status Draft; v2 shipped in libtorrent 2.0 (2020).
    https://www.bittorrent.org/beps/bep_0052.html
 7. B. Laurie, A. Langley, E. Kasper. "Certificate Transparency." RFC 6962, 2013.
-   Updated as RFC 9162 (Laurie, Messeri, Stradling), 2021.
+   https://www.rfc-editor.org/info/rfc6962 — updated as RFC 9162 (Laurie,
+   Messeri, Stradling), 2021. https://www.rfc-editor.org/info/rfc9162
 8. M. Chase, S. Meiklejohn. "Transparency Overlays and Applications."
-   *ACM CCS 2016.*
+   *ACM CCS 2016.* https://dl.acm.org/doi/10.1145/2976749.2978404
+   (eprint: https://eprint.iacr.org/2016/915)
 9. R. Cox. "Transparent Logs for Skeptical Clients." 2019.
-   https://research.swtch.com/tlog — and the Go module checksum database,
-   go.dev/blog/module-mirror-launch, 2019.
+   https://research.swtch.com/tlog — and the Go team's "Module Mirror and
+   Checksum Database Launched," Go blog, 2019.
+   https://go.dev/blog/module-mirror-launch
 10. J. Samuel, N. Mathewson, J. Cappos, R. Dingledine. "Survivable Key Compromise
-    in Software Update Systems." *ACM CCS 2010.*
+    in Software Update Systems." *ACM CCS 2010.* (The Update Framework, TUF.)
+    https://dl.acm.org/doi/10.1145/1866307.1866315
 11. T. K. Kuppusamy et al. "Uptane: Securing Software Updates for Automobiles."
-    *escar Europe 2016.*
+    *escar Europe 2016.* https://ssl.engineering.nyu.edu/papers/kuppusamy_escar_16.pdf
 12. K. Nikitin et al. "CHAINIAC: Proactive Software-Update Transparency via
     Collectively Signed Skipchains and Verified Builds." *USENIX Security 2017.*
+    https://www.usenix.org/conference/usenixsecurity17/technical-sessions/presentation/nikitin
 13. A. Tomescu, S. Devadas. "Catena: Efficient Non-equivocation via Bitcoin."
-    *IEEE S&P 2017.*
+    *IEEE S&P 2017.* https://ieeexplore.ieee.org/document/7958589
 14. M. Al-Bassam, S. Meiklejohn. "Contour: A Practical System for Binary
-    Transparency." *CBT @ ESORICS 2018* (arXiv:1712.08427).
+    Transparency." *CBT @ ESORICS 2018* (workshop).
+    https://doi.org/10.1007/978-3-030-00305-0_8 (preprint arXiv:1712.08427,
+    https://arxiv.org/abs/1712.08427)
 15. Z. Newman, J. S. Meyers, S. Torres-Arias. "Sigstore: Software Signing for
-    Everybody." *ACM CCS 2022.*
+    Everybody." *ACM CCS 2022*, pp. 2353–2367.
+    https://dl.acm.org/doi/10.1145/3548606.3560596
 16. K. Merrill, Z. Newman, S. Torres-Arias, K. R. Sollins. "Speranza: Usable,
     Privacy-friendly Software Signing." *ACM CCS 2023.*
+    https://dl.acm.org/doi/10.1145/3576915.3623200
 17. K. Kalu et al. "An Industry Interview Study of Software Signing for Supply
     Chain Security." *USENIX Security 2025.*
-18. W3C. "Subresource Integrity." W3C Recommendation, 2016.
-19. R. Polli, L. Pardue. "Digest Fields." RFC 9530, 2024.
-20. SLSA: "Supply-chain Levels for Software Artifacts," v1.0 (2023), v1.2 (2025).
-    https://slsa.dev — npm provenance (GitHub, 2023); PyPI PEP 740 digital
-    attestations (2024).
+    https://www.usenix.org/conference/usenixsecurity25/presentation/kalu
+    (preprint arXiv:2406.08198, https://arxiv.org/abs/2406.08198)
+18. W3C. "Subresource Integrity." W3C Recommendation, 23 June 2016.
+    https://www.w3.org/TR/2016/REC-SRI-20160623/
+19. R. Polli, L. Pardue. "Digest Fields." RFC 9530, 2024 (obsoletes RFC 3230).
+    https://www.rfc-editor.org/info/rfc9530
+20. SLSA: "Supply-chain Levels for Software Artifacts," v1.0 (2023) through v1.2
+    (2025). https://slsa.dev/spec/v1.2/about — npm provenance GA (GitHub, 2023),
+    https://github.blog/changelog/2023-09-26-npm-provenance-general-availability/ ;
+    PyPI PEP 740, "Index support for digital attestations" (2024),
+    https://peps.python.org/pep-0740/
 21. Trail of Bits. "Catching malicious package releases using a transparency
-    log." 2025. https://blog.trailofbits.com/2025/12/12/
-22. Linux kernel documentation. "dm-verity" (device-mapper block integrity via a
-    Merkle tree) and "fs-verity: read-only file-based authenticity protection."
-    kernel.org, admin-guide/device-mapper/verity and filesystems/fsverity.
-    See also Android Verified Boot (source.android.com/docs/security/features/verifiedboot/dm-verity).
-23. OSTree, Nix, Guix, Flatpak documentation (content-addressed stores with
-    ed25519/GPG root/commit/narinfo signing); Go checksum database
-    ("Transparent Logs for Skeptical Clients," ref. 9) as the closest deployed
-    software transparency log — non-equivocation without identity binding.
+    log." 2025.
+    https://blog.trailofbits.com/2025/12/12/catching-malicious-package-releases-using-a-transparency-log/
+22. Linux kernel documentation. "dm-verity,"
+    https://www.kernel.org/doc/html/latest/admin-guide/device-mapper/verity.html
+    and "fs-verity,"
+    https://www.kernel.org/doc/html/latest/filesystems/fsverity.html ; Android
+    Verified Boot (dm-verity),
+    https://source.android.com/docs/security/features/verifiedboot/dm-verity
+23. Content-addressed distribution with signing: OSTree,
+    https://ostreedev.github.io/ostree/ ; Nix binary cache,
+    https://wiki.nixos.org/wiki/Binary_Cache ; Guix substitute authentication,
+    https://guix.gnu.org/manual/en/html_node/Substitute-Authentication.html ;
+    Flatpak repository hosting,
+    https://docs.flatpak.org/en/latest/hosting-a-repository.html . See the Go
+    checksum database (ref. 9) as the closest deployed software transparency log
+    — non-equivocation without identity binding.
 24. Debian Wiki, "ReproducibleBuilds/PackageTransparency,"
     https://wiki.debian.org/ReproducibleBuilds/PackageTransparency (exploratory
-    notes from the transparency.dev 2025 summit weighing sigsum + multi-witness
-    against Sigstore — planning, not a deployed decision); Sigsum design,
-    https://git.sigsum.org (witness-cosigned, no OIDC dependency).
-25. GNU Guix. "'guix substitute' and 'guix pull' Vulnerabilities." 2026,
+    notes from the transparency.dev 2025 summit — planning, not a deployed
+    decision); Sigsum, https://www.sigsum.org/ (witness-cosigned, no OIDC
+    dependency).
+25. GNU Guix. "'guix substitute' and 'guix pull' Vulnerabilities." 2026.
     https://guix.gnu.org/en/blog/2026/guix-substitute-pull-vulnerabilities/
     (files written during download before hash verification; substitute URLs
     unprotected by signatures — field evidence for the verify-during-transfer
     thesis).
 26. M. Stevens. "Counter-Cryptanalysis." *CRYPTO 2013*, LNCS 8042, pp. 129–146.
-    (Open-access extended version: IACR ePrint 2013/358,
-    https://eprint.iacr.org/2013/358.) The analysis proving the Flame malware's
+    https://doi.org/10.1007/978-3-642-40041-4_8 (eprint 2013/358,
+    https://eprint.iacr.org/2013/358). The analysis proving the Flame malware's
     forged Microsoft code-signing certificate used a previously-unknown variant
     of the MD5 chosen-prefix collision attack. See also M. Fillinger & M.
     Stevens, "Reverse-Engineering of the Cryptanalytic Attack Used in the Flame
-    Super-Malware," *ASIACRYPT 2015*, LNCS 9453, pp. 586–611
-    (https://eprint.iacr.org/2016/298), and Microsoft Security Advisory 2718704
-    (June 3, 2012).
+    Super-Malware," *ASIACRYPT 2015*, LNCS 9453, pp. 586–611.
+    https://doi.org/10.1007/978-3-662-48800-3_24 (eprint 2016/298,
+    https://eprint.iacr.org/2016/298). And Microsoft Security Advisory 2718704
+    (June 3, 2012),
+    https://learn.microsoft.com/en-us/security-updates/securityadvisories/2012/2718704
