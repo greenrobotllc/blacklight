@@ -1,7 +1,7 @@
 # Could blacklight be standardized (IETF)?
 
-Short answer: **you can submit an Internet-Draft tomorrow — that part is free and
-ungated — but almost none of blacklight would survive review as-is, and the one
+Short answer: **you can submit an Internet-Draft (I-D — the IETF's term for a
+working spec document) tomorrow — that part is free and ungated — but almost none of blacklight would survive review as-is, and the one
 piece that might needs the design changed first.** This page records an honest
 assessment so the question doesn't have to be re-litigated from scratch.
 
