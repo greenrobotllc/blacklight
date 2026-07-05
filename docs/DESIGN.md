@@ -474,6 +474,26 @@ related-work section of [`../paper/PAPER.md`](../paper/PAPER.md) and the
 on log-agnostic verification (sigsum, not only Rekor) and package-manager
 augment mode.
 
+**The verified-streaming half was already tried at the IETF, and failed.** This
+matters enough to state directly: the Merkle Integrity Content Encoding
+(`draft-thomson-http-mice`, last revised Aug 2018, **expired Feb 2019**, never an
+RFC) defined an HTTP content-coding that verified each record against a Merkle
+tree as it arrived — exactly blacklight's abort-on-first-bad-byte mechanism, in
+SHA-256. It was abandoned when its parent effort, Signed HTTP Exchanges / Web
+Packaging, lost cross-vendor support (Mozilla filed a formal "harmful" position
+over centralization concerns; Firefox never implemented; Cloudflare began
+removing Signed Exchange support in Oct 2025). So "verified streaming as an HTTP
+encoding" is not a novel standardization opportunity — it is a re-run of a dead
+draft, and what killed the surrounding work was governance (centralization,
+single-vendor demand), not the mechanism. That same governance objection — a
+Sigstore/OIDC centralization dependency — is the one a standards body would raise
+about blacklight, which is another reason the log-agnostic direction (§7.1) is
+strategically important. The one plausibly-standardizable piece is not the
+streaming but the log-agnostic binding of an identity to a signed Merkle root
+plus verify-before-consume semantics, which maps onto the *active* IETF SCITT and
+COSE Receipts work. See [`STANDARDIZATION.md`](STANDARDIZATION.md) for the full
+assessment.
+
 ### 7.1 Sigstore vs. sigsum — and what supporting both would take
 
 blacklight anchors transparency and identity in **Sigstore** (Fulcio + Rekor).

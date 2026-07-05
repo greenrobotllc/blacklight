@@ -141,6 +141,14 @@ identity-bound signing (npm provenance, PyPI PEP 740, apt/Rekor plugins). Its
 contribution is the *composition* in one deployment shape — a transparency-logged,
 identity-bound signature over a Merkle root gating abort-on-first-bad-byte
 verification of a fetch from an untrusted mirror — and even that gap is expected to
-narrow as Sigstore spreads through OS distribution. See the related-work section
-of [`../paper/PAPER.md`](../paper/PAPER.md) and
-[DESIGN.md §7](DESIGN.md#7-prior-art-where-this-is-and-is-not-novel).
+narrow as Sigstore spreads through OS distribution.
+
+The verified-streaming idea was, in fact, proposed to the IETF and **failed**:
+the Merkle Integrity Content Encoding (`draft-thomson-http-mice`, expired Feb
+2019) defined exactly this — per-record Merkle verification during an HTTP
+transfer — and never became a standard. So this is not just "not novel," it's an
+idea a standards body already declined to adopt (for governance reasons around
+the effort it served, not the mechanism). See the related-work section of
+[`../paper/PAPER.md`](../paper/PAPER.md),
+[DESIGN.md §7](DESIGN.md#7-prior-art-where-this-is-and-is-not-novel), and
+[STANDARDIZATION.md](STANDARDIZATION.md).
