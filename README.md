@@ -484,11 +484,85 @@ Sigstore/Rekor as npm provenance); the difference is entirely in *what* is signe
 (a streaming-verifiable BLAKE3 Merkle root) and *when* it's checked (during a
 gated transfer).
 
+### Wasn't this already tried at the IETF (MICE) and abandoned?
+
+Partly, yes — and it's worth being upfront about.
+
+**In everyday terms first:** back in 2018 there was a proposed web standard
+called MICE that did the "check each piece of a download as it arrives, stop the
+moment one is wrong" part — the same streaming idea blacklight uses. It never
+caught on. But think of MICE as *a tamper-evident seal on a package*: it could
+tell you the package was resealed in transit, but not *who* sealed it or whether
+that seal is on any public record. blacklight adds exactly that missing part — it
+ties the download to a **named publisher whose signature is written in a public
+logbook anyone can audit**, and it refuses to even start downloading unless that
+checks out. Also, MICE didn't fail because the idea was bad; it failed because the
+bigger project it was attached to got into a *political* fight between browser
+makers (over who gets to control web content), and MICE went down with the ship.
+That's a useful warning for blacklight, not a reason the approach is wrong.
+
+The technical version follows.
+
+The [Merkle Integrity Content Encoding](https://datatracker.ietf.org/doc/draft-thomson-http-mice/)
+(`draft-thomson-http-mice`, expired 2019) defined an HTTP content-coding that
+verified each record against a Merkle tree *as it arrived* — i.e. the same
+per-chunk, abort-on-first-bad-byte **streaming** idea blacklight uses, in SHA-256.
+It never became a standard. So the streaming mechanism is **not** a blacklight
+invention, and we don't claim it is.
+
+But MICE and blacklight are not the same thing, in two ways that matter:
+
+- **MICE was only the streaming half — it checked the bytes but not the
+  *source*.** Every download boils down to one short fingerprint at the top of
+  its hash tree — call it the *root fingerprint*. MICE could confirm the bytes
+  matched *a* root fingerprint, but said nothing about *whose* it was or whether
+  anyone trustworthy stood behind it. (It existed mainly to carry content for
+  **Signed HTTP Exchanges**, borrowing that project's certificates for trust.)
+  blacklight adds the missing half: it **ties that root fingerprint to a named
+  publisher's signature, recorded in a public logbook anyone can audit** — and it
+  won't start the download unless that signature is present and comes from the
+  exact publisher you asked for.
+
+- **What killed MICE was governance, not the mechanism.** Signed HTTP Exchanges
+  lost cross-vendor support — Mozilla filed a formal "harmful" position over
+  centralization and origin-substitution concerns, Firefox never implemented it,
+  and Cloudflare began removing support in 2025 — and MICE was abandoned along
+  with it. That history is
+  a genuine cautionary tale for blacklight (its Sigstore/OIDC dependency invites
+  the *same* centralization critique), which is exactly why the roadmap prioritizes
+  making the transparency backend
+  [log-agnostic](https://github.com/greenrobotllc/blacklight/issues/18).
+
+The honest takeaway: "verified streaming over HTTP" is a known idea with a *failed*
+standardization history, so blacklight is best understood not as that idea, but as
+its **composition with identity-bound transparency**, shipped as a working tool
+rather than a spec. Whether even that composition could be standardized — and why
+the answer is "a narrow slice, at best" — is assessed in
+[`docs/STANDARDIZATION.md`](docs/STANDARDIZATION.md).
+
 ### Is this production-ready?
 
 No — it's a pre-1.0, unaudited research prototype with a hand-rolled core
 verifier and fast-moving dependencies. See [`docs/CAVEATS.md`](docs/CAVEATS.md)
 for the full, honest list before relying on it for anything that matters.
+
+### Glossary for the terms above
+
+The core terms (BLAKE3, Merkle tree, Sigstore, Rekor, OIDC, transparency log,
+etc.) are defined in the
+[main glossary](#glossary-with-links-to-learn-more) higher up. These are the
+extra ones the answers above use:
+
+| Term | Plain meaning |
+| --- | --- |
+| **Root fingerprint / root hash** | Every download is turned into a tree of fingerprints; the single one at the very top stands in for the whole file. Match a piece up to it and you know that piece is genuine. |
+| **Content-coding (content encoding)** | A standard "wrapper" applied to data sent over HTTP (like gzip compression is a content-coding). MICE proposed integrity-checking as one such wrapper. |
+| **MICE** | *Merkle Integrity Content Encoding* — the expired 2018 web-standard proposal that did per-piece streaming verification. blacklight uses the same streaming idea. |
+| **Signed HTTP Exchanges** | A (now-fading) web feature that let a third party — e.g. a CDN — serve a page *as if* it came from the original site, using the site's signature. MICE existed mainly to carry content for it. (You may see it abbreviated "SXG" — a coined shorthand, not initials.) |
+| **Provenance** | Verifiable metadata about *how and by whom an artifact was built* (which source, which build system) — e.g. npm provenance. Answers "where did this come from," a layer above blacklight's "are these bytes intact." |
+| **Attestation** | A signed statement asserting a fact about an artifact (its provenance, its build, etc.). "Provenance attestation" = a signed claim about how it was built. |
+| **id-token (OIDC token)** | A short-lived proof-of-identity issued by a login provider ("this really is that GitHub Actions run / that user"). Sigstore uses one to sign without a long-lived key. GitHub withholds these from pull-request runs, which is why one CI job only runs on `main`. |
+| **Governance / cross-vendor** | Not a technical term — refers to the *politics* of getting browser makers (Chrome, Firefox, Safari) and others to agree on a standard. "Cross-vendor support" = more than one of them backing it. Signed HTTP Exchanges (and MICE with it) failed here, not on the technology. |
 
 ## Design & background
 
