@@ -486,6 +486,11 @@ gated transfer).
 
 ### Wasn't this already tried at the IETF (MICE) and abandoned?
 
+**Short answer:** MICE only proved a download wasn't tampered with in transit —
+not *who* stands behind it. blacklight ties the file to a named publisher whose
+signature is recorded in a public, auditable log (using Sigstore), and refuses to
+download unless that checks out.
+
 Partly, yes — and it's worth being upfront about.
 
 **In everyday terms first:** back in 2018 there was a proposed web standard
