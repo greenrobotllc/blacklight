@@ -633,7 +633,8 @@ specification, or archival copy for expired drafts).
     https://www.usenix.org/conference/usenixsecurity25/presentation/kalu
     (preprint arXiv:2406.08198, https://arxiv.org/abs/2406.08198)
 18. W3C. "Subresource Integrity." W3C Recommendation, 23 June 2016.
-    https://www.w3.org/TR/2016/REC-SRI-20160623/
+    https://www.w3.org/TR/SRI/
+    (dated version: https://www.w3.org/TR/2016/REC-SRI-20160623/)
 19. R. Polli, L. Pardue. "Digest Fields." RFC 9530, 2024 (obsoletes RFC 3230).
     https://www.rfc-editor.org/info/rfc9530
 20. SLSA: "Supply-chain Levels for Software Artifacts," v1.0 (2023) through v1.2
