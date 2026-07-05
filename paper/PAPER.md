@@ -475,15 +475,20 @@ over a read-only block device and verifies each 4 KiB block against a signed roo
 hash *on page-in*, aborting on mismatch — this is Android Verified Boot,
 ChromeOS, and the backbone of immutable distributions. **fs-verity** is the
 per-file analogue (a Merkle tree stored past end-of-file, verified per page as
-the file is read; the basis of Android APK and Fedora RPM file integrity).
-**IMA/EVM** add measured boot and on-access appraisal anchored in a TPM. Every
-one of these is incremental, Merkle-based verification against a signed root — so
-blacklight's per-chunk streaming verification is *not a new idea* relative to the
-kernel; it is a known technique applied to a different deployment shape (a fresh
-transfer from an untrusted remote, aborting mid-stream, rather than a local,
-already-provisioned read-only volume). Their trust anchor, crucially, is a local
-key (kernel keyring / MOK / TPM), never a public transparency log or an
-OIDC-bound identity.
+the file is read; the basis of Android APK and Fedora RPM file integrity). Both
+are incremental, Merkle-based verification against a signed root — the same
+building block as blacklight's streaming verification. (The kernel's **IMA/EVM**
+subsystem is a *distinct* mechanism — measurement of files into TPM PCRs plus
+signature/HMAC appraisal of file content and metadata, not per-block Merkle
+streaming — and we note it only to complete the picture of the kernel integrity
+stack, not as another instance of the same technique.) The point stands: relative
+to the kernel, blacklight's per-chunk streaming verification is *not a new idea*;
+it is a known technique (dm-verity/fs-verity-style Merkle-verified access) applied
+to a different deployment shape — a fresh transfer from an untrusted remote,
+aborting mid-stream, rather than a local, already-provisioned read-only volume.
+The trust anchor of all these kernel mechanisms is, crucially, a local key
+(kernel keyring / MOK / TPM), never a public transparency log or an OIDC-bound
+identity.
 
 **Distribution systems: content-addressing and signing are solved; transparency
 is the gap.** Modern Linux distribution already pairs content-addressed stores
@@ -500,9 +505,12 @@ guarantees *non-equivocation* (everyone sees the same hash for a given
 `module@version`), not *identity*, and is a single operator, not keyless/OIDC.
 Identity-bound transparency has landed in language registries (npm provenance,
 PyPI PEP 740) and in experimental apt/Rekor plugins, but not in any mainstream
-OS-package path as of 2025–2026; Debian's own package-transparency planning
-leans toward *sigsum* with independent witnesses over Sigstore, treating the
-OIDC dependency as a centralization risk. A June 2026 Guix disclosure — code that
+OS-package path as of 2025–2026. Where such work is being *explored*, the OIDC
+dependency is treated warily: Debian's exploratory package-transparency notes
+from the transparency.dev 2025 summit [Debian Wiki, PackageTransparency] weigh
+*sigsum* with independent witnesses against Sigstore — early planning that
+signals what these communities value, not a decision or a deployed system. A June
+2026 Guix disclosure — code that
 wrote substitute files *during download before hash verification*, and signatures
 that left substitute URLs unprotected — is direct field evidence that the
 "verify-during-transfer, TLS ≠ artifact integrity" failure modes blacklight
@@ -616,9 +624,11 @@ single bad chunk group rather than an entire tampered file.
     ed25519/GPG root/commit/narinfo signing); Go checksum database
     ("Transparent Logs for Skeptical Clients," ref. 9) as the closest deployed
     software transparency log — non-equivocation without identity binding.
-24. Debian Wiki, "ReproducibleBuilds/PackageTransparency" (2025 transparency.dev
-    summit notes; leans sigsum + multi-witness over Sigstore); Sigsum design
-    (git.sigsum.org — witness-cosigned, no OIDC dependency).
+24. Debian Wiki, "ReproducibleBuilds/PackageTransparency,"
+    https://wiki.debian.org/ReproducibleBuilds/PackageTransparency (exploratory
+    notes from the transparency.dev 2025 summit weighing sigsum + multi-witness
+    against Sigstore — planning, not a deployed decision); Sigsum design,
+    https://git.sigsum.org (witness-cosigned, no OIDC dependency).
 25. GNU Guix. "'guix substitute' and 'guix pull' Vulnerabilities." 2026,
     https://guix.gnu.org/en/blog/2026/guix-substitute-pull-vulnerabilities/
     (files written during download before hash verification; substitute URLs

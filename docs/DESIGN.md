@@ -430,12 +430,17 @@ its ingredients are independently and widely deployed.
 block against a signed root hash on page-in (Android Verified Boot, ChromeOS,
 immutable distros). `fs-verity` is the per-file equivalent (Merkle tree past
 end-of-file, verified per page; the basis of Android APK and Fedora RPM file
-integrity). IMA/EVM add measured boot and on-access appraisal. blacklight's
-per-16 KiB-group verification is the *same technique* applied to a different
-deployment shape: a fresh transfer from an untrusted *remote* mirror, aborting
-mid-stream, rather than a local, already-provisioned read-only volume. The kernel
-mechanisms anchor trust in a local key (kernel keyring / MOK / TPM), never a
-public transparency log or an identity.
+integrity). Both are genuine Merkle-verified access — the same building block as
+blacklight's streaming verification. (IMA/EVM are a *different* mechanism —
+measurement of files into TPM PCRs plus signature/HMAC appraisal of file
+content and metadata, not per-block Merkle streaming — and are mentioned only to
+round out the kernel integrity stack, not as an instance of the same technique.)
+blacklight's per-16 KiB-group verification is that same Merkle-verified-access
+technique applied to a different deployment shape: a fresh transfer from an
+untrusted *remote* mirror, aborting mid-stream, rather than a local,
+already-provisioned read-only volume. All of these kernel mechanisms anchor trust
+in a local key (kernel keyring / MOK / TPM), never a public transparency log or
+an identity.
 
 **Transparency-log-anchored, identity-bound signing is not new either.** npm
 provenance and PyPI PEP 740 attestations already sign packages keylessly via
@@ -485,9 +490,13 @@ so much as different points in the design space:
 | Operational weight | Heavier (CA + log + OIDC) | Lighter (log + witnesses; you bring your own key) |
 
 The distinction matters for adoption: communities that want transparency but
-distrust a central log or an OIDC dependency (notably some Linux distributions —
-Debian's package-transparency planning leans toward sigsum + multiple witnesses)
-would reject the Sigstore dependency outright. Conversely, sigsum alone does
+distrust a central log or an OIDC dependency may reject the Sigstore dependency
+outright. As one data point, Debian's *exploratory* package-transparency notes
+from the transparency.dev 2025 summit
+([Debian Wiki, ReproducibleBuilds/PackageTransparency](https://wiki.debian.org/ReproducibleBuilds/PackageTransparency))
+weigh sigsum with multiple witnesses against Sigstore — but this is early
+planning, not a decision or a deployed system, and should be read as a signal of
+what such communities value, not as settled adoption. Conversely, sigsum alone does
 **not** give blacklight its identity policy (`--expect-identity`/`--expect-issuer`),
 which is central to the current threat model. So the honest conclusion is
 **support both**, and let the operator state which properties they require
