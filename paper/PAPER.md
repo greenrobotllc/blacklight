@@ -448,11 +448,35 @@ publisher identity or log. Blacklight's addition is precisely to make that root 
 
 **Web integrity mechanisms — useful contrasts.** Subresource Integrity [W3C 2016]
 pins a whole-resource hash in HTML but verifies only after the full resource is
-fetched and carries no transparency. RFC 9530 Digest Fields [Polli & Pardue 2024]
-are in-band and unauthenticated (Section 1.1). Signed HTTP Exchanges with the MICE
-encoding combine streaming Merkle verification with a signature and CT-logged
-certificates — architecturally the nearest cousin — but are browser-scoped, ride
-an expired IETF draft, and log the *certificate*, not the artifact.
+fetched and carries no transparency; its 2025 *signature-based* extension (an
+Ed25519 key in `integrity=` plus an HTTP Message Signature, shipping in Chrome)
+binds a key to a fetched resource but still has no transparency log and no
+streaming abort. RFC 9530 Digest Fields [Polli & Pardue 2024] are in-band and
+unauthenticated (Section 1.1). Signed HTTP Exchanges with the MICE encoding
+combine streaming Merkle verification with a signature and CT-logged certificates
+— architecturally the nearest cousin — but are browser-scoped, log the
+*certificate* rather than the artifact, and rest on abandoned specifications.
+
+**A cautionary precedent worth stating plainly.** The verified-streaming half of
+this design was already proposed to the IETF and *failed*. The Merkle Integrity
+Content Encoding (`draft-thomson-http-mice`, last revised August 2018, expired
+February 2019) defined an `mi-sha256` HTTP content-coding that verified each
+record against a Merkle tree as it arrived — precisely blacklight's
+abort-on-first-bad-byte mechanism, in SHA-256. It never became an RFC. It existed
+mainly to serve Signed HTTP Exchanges / Web Packaging, and when that parent effort
+lost cross-vendor support — Mozilla filed a formal "harmful" position over
+centralization and origin-substitution concerns, Firefox never implemented, and
+Cloudflare began removing Signed Exchange support in October 2025 — MICE was
+abandoned with it. The lesson is directly relevant here: *verified streaming as an
+HTTP encoding has been tried and did not find a home, and what killed the
+surrounding effort was governance (centralization, single-vendor demand), not the
+mechanism.* Reproposing per-chunk Merkle verification with BLAKE3 in place of
+SHA-256 would re-walk that path. It also means blacklight's genuinely
+standardizable surface — if any — is not the streaming but the log-agnostic
+binding of an identity to a signed Merkle root plus a verify-before-consume
+policy, which maps onto the active SCITT and COSE Receipts work rather than a new
+content-coding. We return to this in the standardization discussion
+(`docs/STANDARDIZATION.md`).
 
 **The Sigstore ecosystem and its adoption.** The Sigstore paper [Newman et al.
 2022] and *Speranza* [Merrill et al. 2023] define the keyless-signing and
@@ -680,3 +704,18 @@ specification, or archival copy for expired drafts).
     https://eprint.iacr.org/2016/298). And Microsoft Security Advisory 2718704
     (June 3, 2012),
     https://learn.microsoft.com/en-us/security-updates/securityadvisories/2012/2718704
+27. M. Thomson. "Merkle Integrity Content Encoding." Internet-Draft
+    draft-thomson-http-mice (individual; last revised Aug 2018, expired Feb 2019;
+    never an RFC). https://datatracker.ietf.org/doc/draft-thomson-http-mice/ —
+    the prior IETF attempt at per-record Merkle verified streaming over HTTP.
+28. J. Yasskin. "Signed HTTP Exchanges." IETF wpack WG / WICG.
+    https://datatracker.ietf.org/wg/wpack/about/ ; Mozilla standards-position
+    ("harmful"), https://github.com/mozilla/standards-positions/issues/264 ;
+    Cloudflare AMP + Signed Exchanges deprecation (from Oct 20, 2025),
+    https://community.cloudflare.com/t/amp-and-signed-exchanges-deprecation-october-20th/831238
+29. IETF SCITT WG. "An Architecture for Trustworthy and Transparent Digital
+    Supply Chains," draft-ietf-scitt-architecture (IESG-approved Proposed
+    Standard, 2025). https://datatracker.ietf.org/doc/draft-ietf-scitt-architecture/
+    — and "COSE Receipts," draft-ietf-cose-merkle-tree-proofs,
+    https://datatracker.ietf.org/doc/draft-ietf-cose-merkle-tree-proofs/ (the
+    log-agnostic inclusion-proof format a BLAKE3 proof type would target).

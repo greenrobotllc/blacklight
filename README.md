@@ -464,6 +464,11 @@ shipping — [npm provenance](https://docs.npmjs.com/generating-provenance-state
 [apt/Rekor](https://blog.josefsson.org/tag/rekor/) plugins all do it. So don't
 read this as "no one has done this before" — plenty have done each part.
 
+The streaming part was even proposed to the IETF once and *failed*: the Merkle
+Integrity Content Encoding ([`draft-thomson-http-mice`](https://datatracker.ietf.org/doc/draft-thomson-http-mice/),
+expired 2019) defined exactly this — per-chunk Merkle verification during an HTTP
+transfer — and never became a standard.
+
 **blacklight's contribution is the specific *composition*:** a
 transparency-logged, *identity-bound* signature over a BLAKE3 root, wired into a
 forward-only, fail-fast, abort-on-first-bad-byte streaming verifier, applied to a
@@ -471,7 +476,9 @@ forward-only, fail-fast, abort-on-first-bad-byte streaming verifier, applied to 
 enforced before the first byte. That exact combination in that deployment shape
 is the part we couldn't find already built — and even that gap is closing as
 Sigstore spreads through software distribution. It's a research prototype, not a
-claim to have invented Merkle trees or transparency logs.
+claim to have invented Merkle trees or transparency logs. (Whether any of it
+could be standardized — and why the answer is "a narrow slice, at best" — is
+assessed in [`docs/STANDARDIZATION.md`](docs/STANDARDIZATION.md).)
 
 ## License
 
